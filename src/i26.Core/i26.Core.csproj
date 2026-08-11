@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <RootNamespace>i26.Core</RootNamespace>
+        <AssemblyName>i26.Core</AssemblyName>
+        <PackageId>i26.Core</PackageId>
+        <Description>
+            i26 primitives. Includes strongly typed identifiers in the TypeID format
+            ({prefix}_{uuidv7 in Crockford base32}), created by the application and sortable by
+            creation instant.
+        </Description>
+        <PackageTags>typeid;uuid7;uuidv7;strongly-typed-id;identifier;ddd</PackageTags>
+    </PropertyGroup>
+
+    <!-- No external dependencies by design. -->
+
+</Project>

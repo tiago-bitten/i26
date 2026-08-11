@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <RootNamespace>i26.EntityFrameworkCore</RootNamespace>
+        <AssemblyName>i26.EntityFrameworkCore</AssemblyName>
+        <PackageId>i26.EntityFrameworkCore</PackageId>
+        <Description>
+            EF Core integration for the i26 typed identifiers: value converters, value comparers and
+            model conventions (text column with the "C" collation).
+        </Description>
+        <PackageTags>typeid;uuid7;strongly-typed-id;efcore;entity-framework</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\i26.Core\i26.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.13" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.6" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.4" />
+    </ItemGroup>
+
+</Project>

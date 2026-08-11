@@ -1,0 +1,43 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+[Ll]og/
+[Ll]ogs/
+
+## Test results and coverage
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coverlet.json
+coverage*.json
+coverage*.xml
+coverage*.info
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+*.nuget.props
+*.nuget.targets
+
+## IDE and editor state
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+*.swp
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Local overrides
+appsettings.*.local.json
+*.local.props

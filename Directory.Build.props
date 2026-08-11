@@ -1,0 +1,29 @@
+<Project>
+
+    <PropertyGroup Label="Build">
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <EnableNETAnalyzers>true</EnableNETAnalyzers>
+        <AnalysisLevel>latest</AnalysisLevel>
+        <NoWarn>$(NoWarn);NETSDK1138</NoWarn>
+    </PropertyGroup>
+
+    <PropertyGroup Label="Package">
+        <Version>0.1.0</Version>
+        <Authors>Tiago Bittencourt</Authors>
+        <Company>i26</Company>
+        <Product>i26</Product>
+        <Copyright>Copyright (c) i26</Copyright>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/tiago-bitten/i26</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/tiago-bitten/i26</PackageProjectUrl>
+        <RepositoryType>git</RepositoryType>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    </PropertyGroup>
+
+</Project>

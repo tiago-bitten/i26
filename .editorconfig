@@ -1,0 +1,25 @@
+root = true
+
+[*]
+indent_style = space
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{csproj,props,targets,config,json,xml}]
+indent_size = 2
+
+[*.cs]
+indent_size = 4
+
+# The "i26" brand is lowercase by decision: namespaces and assemblies start with a lowercase
+# letter on purpose, so the naming rules that demand PascalCase on namespace/type identifiers
+# are turned off.
+dotnet_diagnostic.IDE1006.severity = none
+dotnet_diagnostic.CS8981.severity = none
+
+# General style preferences
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_using_directive_placement = outside_namespace:silent
+dotnet_sort_system_directives_first = true
