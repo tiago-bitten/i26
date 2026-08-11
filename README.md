@@ -124,8 +124,22 @@ and three characters are enough to tell entities apart at a glance — `usr`, `o
 
 It is checked, once per id type, the first time one is formatted or parsed. An empty prefix, an
 uppercase letter, a digit, an underscore or a fourth character stops the type with a message saying
-which rule it broke. `TypedIdPrefix.Validate<CourseId>()` runs the same check on demand, for a
-startup assertion or a test that sweeps every id in the assembly.
+which rule it broke.
+
+There is one mistake no per-type check can catch: **two entities picking the same prefix.** Nothing
+stops `CourseId` and `ClassroomId` from both declaring `crs`, the code goes on compiling, and
+`crs_01h455…` quietly stops saying which entity it belongs to. One test in the project that declares
+the ids settles it:
+
+```csharp
+[Fact]
+public void Typed_id_prefixes_are_valid_and_unique()
+    => TypedIdPrefix.ValidateAll(typeof(CourseId).Assembly);
+```
+
+That sweeps every typed id in the assembly — non-public ones included — checking each prefix against
+the rules and refusing any that repeats, naming both types. `TypedIdPrefix.Validate<CourseId>()`
+checks a single id, and `ValidateAll` also takes an explicit list of types when you want to scope it.
 
 When three really are not enough, say so next to the prefix:
 

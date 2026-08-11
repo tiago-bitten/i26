@@ -25,27 +25,7 @@ public sealed class TypedIdJsonConverterFactory : JsonConverterFactory
     /// </summary>
     /// <param name="typeToConvert">The candidate type.</param>
     /// <returns><see langword="true"/> when it is a typed id.</returns>
-    public override bool CanConvert(Type typeToConvert)
-    {
-        ArgumentNullException.ThrowIfNull(typeToConvert);
-
-        if (!typeToConvert.IsValueType)
-        {
-            return false;
-        }
-
-        foreach (var candidate in typeToConvert.GetInterfaces())
-        {
-            if (candidate.IsGenericType &&
-                candidate.GetGenericTypeDefinition() == typeof(ITypedId<>) &&
-                candidate.GenericTypeArguments[0] == typeToConvert)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    public override bool CanConvert(Type typeToConvert) => TypedId.IsTypedId(typeToConvert);
 
     /// <summary>Creates the converter for the given typed id.</summary>
     /// <param name="typeToConvert">The id type.</param>

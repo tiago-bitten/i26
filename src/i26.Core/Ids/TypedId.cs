@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 
 namespace i26.Core.Ids;
 
@@ -208,5 +209,67 @@ public static class TypedId
     {
         ArgumentNullException.ThrowIfNull(prefix);
         return prefix.Length + 1 + CrockfordBase32.EncodedLength;
+    }
+
+    /// <summary>
+    /// Tells whether a type is a concrete struct implementing <see cref="ITypedId{TSelf}"/> with
+    /// itself as the generic argument.
+    /// </summary>
+    /// <param name="type">The candidate type.</param>
+    /// <returns><see langword="true"/> when it is a typed id.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="type"/> is <see langword="null"/>.</exception>
+    public static bool IsTypedId(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        if (!type.IsValueType || type.ContainsGenericParameters)
+        {
+            return false;
+        }
+
+        foreach (var candidate in type.GetInterfaces())
+        {
+            if (candidate.IsGenericType &&
+                candidate.GetGenericTypeDefinition() == typeof(ITypedId<>) &&
+                candidate.GenericTypeArguments[0] == type)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Finds every typed id declared in the given assemblies.</summary>
+    /// <param name="assemblies">Assemblies to scan.</param>
+    /// <returns>The typed id types, non-public ones included.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="assemblies"/>, or one of them, is <see langword="null"/>.
+    /// </exception>
+    /// <remarks>
+    /// Setup-time reflection, meant for model conventions and for
+    /// <see cref="TypedIdPrefix.ValidateAll(Assembly[])"/> — never for anything on a request path.
+    /// </remarks>
+    public static IEnumerable<Type> FindTypedIds(params Assembly[] assemblies)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+
+        return Enumerate(assemblies);
+
+        static IEnumerable<Type> Enumerate(Assembly[] assemblies)
+        {
+            foreach (var assembly in assemblies)
+            {
+                ArgumentNullException.ThrowIfNull(assembly);
+
+                foreach (var type in assembly.GetTypes())
+                {
+                    if (IsTypedId(type))
+                    {
+                        yield return type;
+                    }
+                }
+            }
+        }
     }
 }

@@ -43,55 +43,17 @@ public static class TypedIdEfCoreExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(assemblies);
 
-        foreach (var assembly in assemblies)
+        foreach (var type in TypedId.FindTypedIds(assemblies))
         {
-            ArgumentNullException.ThrowIfNull(assembly);
-
-            foreach (var type in assembly.GetTypes())
-            {
-                if (!IsTypedId(type))
-                {
-                    continue;
-                }
-
-                builder
-                    .Properties(type)
-                    .HaveConversion(
-                        typeof(TypedIdToStringConverter<>).MakeGenericType(type),
-                        typeof(TypedIdComparer<>).MakeGenericType(type))
-                    .HaveColumnType(ColumnType)
-                    .UseCollation(Collation);
-            }
+            builder
+                .Properties(type)
+                .HaveConversion(
+                    typeof(TypedIdToStringConverter<>).MakeGenericType(type),
+                    typeof(TypedIdComparer<>).MakeGenericType(type))
+                .HaveColumnType(ColumnType)
+                .UseCollation(Collation);
         }
 
         return builder;
-    }
-
-    /// <summary>
-    /// Tells whether the type is a concrete struct implementing <see cref="ITypedId{TSelf}"/> with
-    /// itself as the generic argument.
-    /// </summary>
-    /// <param name="type">The candidate type.</param>
-    /// <returns><see langword="true"/> when it is a typed id.</returns>
-    public static bool IsTypedId(Type type)
-    {
-        ArgumentNullException.ThrowIfNull(type);
-
-        if (!type.IsValueType || type.ContainsGenericParameters)
-        {
-            return false;
-        }
-
-        foreach (var candidate in type.GetInterfaces())
-        {
-            if (candidate.IsGenericType &&
-                candidate.GetGenericTypeDefinition() == typeof(ITypedId<>) &&
-                candidate.GenericTypeArguments[0] == type)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

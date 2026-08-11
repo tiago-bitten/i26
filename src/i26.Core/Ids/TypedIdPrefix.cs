@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Runtime.ExceptionServices;
+
 namespace i26.Core.Ids;
 
 /// <summary>
@@ -68,6 +71,95 @@ public static class TypedIdPrefix
     public static string Validate<TId>()
         where TId : struct, ITypedId<TId>
         => TypedIdPrefixCache<TId>.Value;
+
+    /// <summary>
+    /// Checks every typed id in the given assemblies: each prefix follows the rules, and no two ids
+    /// share one.
+    /// </summary>
+    /// <param name="assemblies">Assemblies to sweep.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="assemblies"/>, or one of them, is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// A prefix breaks a rule, or two ids declare the same one.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// Uniqueness cannot be checked one type at a time — nothing stops two entities from picking
+    /// <c>crs</c>, and the compiler has no reason to care. What breaks is the format itself: a
+    /// prefix names the entity, so once two share one, <c>crs_01h455…</c> no longer says which
+    /// entity it belongs to.
+    /// </para>
+    /// <para>One test in the project that declares the ids is enough to keep that from happening:</para>
+    /// <code>
+    /// [Fact]
+    /// public void Typed_id_prefixes_are_valid_and_unique()
+    ///     => TypedIdPrefix.ValidateAll(typeof(CourseId).Assembly);
+    /// </code>
+    /// </remarks>
+    public static void ValidateAll(params Assembly[] assemblies)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+
+        ValidateAll(TypedId.FindTypedIds(assemblies));
+    }
+
+    /// <summary>Checks the given typed ids: each prefix follows the rules, and no two share one.</summary>
+    /// <param name="idTypes">The types to check.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="idTypes"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">One of the types is not a typed id.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// A prefix breaks a rule, or two ids declare the same one.
+    /// </exception>
+    public static void ValidateAll(IEnumerable<Type> idTypes)
+    {
+        ArgumentNullException.ThrowIfNull(idTypes);
+
+        var owners = new Dictionary<string, Type>(StringComparer.Ordinal);
+
+        foreach (var idType in idTypes)
+        {
+            ArgumentNullException.ThrowIfNull(idType);
+
+            if (!TypedId.IsTypedId(idType))
+            {
+                throw new ArgumentException(
+                    $"{idType.Name} does not implement ITypedId<> with itself as the generic " +
+                    "argument, so it has no prefix to check.",
+                    nameof(idTypes));
+            }
+
+            var prefix = ValidateOf(idType);
+
+            if (owners.TryGetValue(prefix, out var owner))
+            {
+                throw new InvalidOperationException(
+                    $"{owner.Name} and {idType.Name} both declare the prefix '{prefix}'. A prefix " +
+                    $"names the entity, so sharing one makes '{prefix}{TypedId.Separator}…' ambiguous: " +
+                    "it no longer says which entity the id belongs to.");
+            }
+
+            owners.Add(prefix, idType);
+        }
+    }
+
+    /// <summary>Runs <see cref="Validate{TId}"/> for a type only known at runtime.</summary>
+    private static string ValidateOf(Type idType)
+    {
+        try
+        {
+            return (string)ValidateDefinition.MakeGenericMethod(idType).Invoke(null, null)!;
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is not null)
+        {
+            // Surface what is wrong with the prefix, not the fact that reflection was involved.
+            ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
+            throw;
+        }
+    }
+
+    private static readonly MethodInfo ValidateDefinition =
+        typeof(TypedIdPrefix).GetMethod(nameof(Validate), genericParameterCount: 1, Type.EmptyTypes)!;
 
     /// <summary>Builds the message explaining what is wrong with a prefix.</summary>
     internal static string Validate(string? prefix, bool extended, Type idType)
