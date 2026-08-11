@@ -38,10 +38,29 @@ public interface ITypedId<TSelf> : IParsable<TSelf>
     where TSelf : struct, ITypedId<TSelf>
 {
     /// <summary>
-    /// The type's prefix, without the separator. Must be lowercase and must not contain <c>_</c>
-    /// — for example <c>auth</c>, <c>usr</c>, <c>ord</c>.
+    /// The type's prefix, without the separator: up to three lowercase letters — <c>usr</c>,
+    /// <c>ord</c>, <c>crs</c>.
     /// </summary>
+    /// <remarks>
+    /// Checked once per id type, the first time one is formatted or parsed. See
+    /// <see cref="TypedIdPrefix"/> for the rules and for <see cref="UsesExtendedPrefix"/>, the way
+    /// out when three characters are not enough.
+    /// </remarks>
     static abstract string Prefix { get; }
+
+    /// <summary>
+    /// Set to <see langword="true"/> to let this id carry a prefix longer than
+    /// <see cref="TypedIdPrefix.MaxLength"/>, up to <see cref="TypedIdPrefix.MaxExtendedLength"/>.
+    /// </summary>
+    /// <remarks>
+    /// The default is <see langword="false"/>, so going long is a decision someone had to write
+    /// down next to the prefix:
+    /// <code>
+    /// public static string Prefix => "workspace";
+    /// public static bool UsesExtendedPrefix => true;
+    /// </code>
+    /// </remarks>
+    static virtual bool UsesExtendedPrefix => false;
 
     /// <summary>Creates the id from the <see cref="Guid"/> it wraps.</summary>
     /// <param name="value">The UUIDv7 behind the id.</param>

@@ -180,8 +180,10 @@ public class ProblemResultsTests
 
         var errors = body.GetProperty("errors").EnumerateArray().ToArray();
 
-        Assert.Equal("Title is required", errors[0].GetProperty("message").GetString());
-        Assert.Equal("Title is longer than 200 characters", errors[1].GetProperty("message").GetString());
+        // Same member name as the root document: an entry of errors[] is a problem, one level down.
+        Assert.Equal("Title is required", errors[0].GetProperty("detail").GetString());
+        Assert.Equal("Title is longer than 200 characters", errors[1].GetProperty("detail").GetString());
+        Assert.False(errors[0].TryGetProperty("message", out _));
     }
 
     [Fact]

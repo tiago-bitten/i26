@@ -38,11 +38,14 @@ public readonly record struct TestOrderId(Guid Value) : ITypedId<TestOrderId>
 
 /// <summary>
 /// Sample id referencing another microservice: same shape, but no <c>New()</c> — only the service
-/// that owns the prefix mints ids with it.
+/// that owns the prefix mints ids with it. Its prefix is four characters, so it also stands for the
+/// extended rule.
 /// </summary>
 public readonly record struct TestExternalAuthId(Guid Value) : ITypedId<TestExternalAuthId>
 {
     public static string Prefix => "auth";
+
+    public static bool UsesExtendedPrefix => true;
 
     public static TestExternalAuthId FromGuid(Guid value) => new(value);
 

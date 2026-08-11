@@ -26,7 +26,7 @@ public static class TypedId
     public static string Format<TId>(TId id)
         where TId : struct, ITypedId<TId>
     {
-        var prefix = TId.Prefix;
+        var prefix = TypedIdPrefixCache<TId>.Value;
 
         return string.Create(
             GetFormattedLength(prefix),
@@ -51,7 +51,7 @@ public static class TypedId
     public static bool TryFormat<TId>(TId id, Span<char> destination, out int charsWritten)
         where TId : struct, ITypedId<TId>
     {
-        var prefix = TId.Prefix;
+        var prefix = TypedIdPrefixCache<TId>.Value;
         var length = GetFormattedLength(prefix);
 
         if (destination.Length < length)
@@ -97,10 +97,12 @@ public static class TypedId
     {
         if (!TryParse<TId>(s, out var result))
         {
+            var prefix = TypedIdPrefixCache<TId>.Value;
+
             throw new FormatException(
-                $"'{s.ToString()}' is not a valid {typeof(TId).Name}. Expected '{TId.Prefix}{Separator}' " +
+                $"'{s.ToString()}' is not a valid {typeof(TId).Name}. Expected '{prefix}{Separator}' " +
                 $"followed by {CrockfordBase32.EncodedLength} characters of the lowercase Crockford " +
-                $"base32 alphabet ('{CrockfordBase32.Alphabet}'), {GetFormattedLength(TId.Prefix)} characters in total.");
+                $"base32 alphabet ('{CrockfordBase32.Alphabet}'), {GetFormattedLength(prefix)} characters in total.");
         }
 
         return result;
@@ -133,7 +135,7 @@ public static class TypedId
     {
         result = default;
 
-        var prefix = TId.Prefix;
+        var prefix = TypedIdPrefixCache<TId>.Value;
         if (s.Length != GetFormattedLength(prefix))
         {
             return false;

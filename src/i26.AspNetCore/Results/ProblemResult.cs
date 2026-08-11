@@ -67,6 +67,9 @@ internal sealed class ProblemResult(Error error, string? fallbackDetail = null) 
 
     /// <summary>One entry of the <c>errors</c> extension of a validation problem.</summary>
     /// <param name="Code">The error code.</param>
-    /// <param name="Message">The description, when the translator had one.</param>
-    private sealed record ProblemError(string Code, string? Message);
+    /// <param name="Detail">
+    /// The description, when the translator had one. Named after the <c>detail</c> member of the
+    /// problem document on purpose: it is the same thing, one level down.
+    /// </param>
+    private sealed record ProblemError(string Code, string? Detail);
 }
