@@ -37,6 +37,7 @@ app.MapPost("courses/{id}/publish", Handle)
 - [Installing](#installing)
 - [Typed identifiers](#typed-identifiers)
 - [Result pattern](#result-pattern)
+- [Commands and queries](#commands-and-queries)
 - [ASP.NET Core](#aspnet-core)
 - [Putting it together](#putting-it-together)
 - [Error types](#error-types)
@@ -50,6 +51,7 @@ app.MapPost("courses/{id}/publish", Handle)
 | Package | What it holds | Depends on |
 | --- | --- | --- |
 | `i26.Core` | Typed ids, UUIDv7, Crockford base32, the JSON converter, `Result`/`Error` | nothing outside the BCL |
+| `i26.Cqrs` | Command and query contracts, and the handler registration | `Microsoft.Extensions.DependencyInjection.Abstractions` |
 | `i26.EntityFrameworkCore` | Value converter, comparer and model conventions for typed ids | `Microsoft.EntityFrameworkCore.Relational` |
 | `i26.AspNetCore` | Problem responses, endpoint discovery, global exception handler | ASP.NET Core shared framework |
 
@@ -69,6 +71,7 @@ Once published:
 
 ```bash
 dotnet add package i26.Core
+dotnet add package i26.Cqrs
 dotnet add package i26.EntityFrameworkCore
 dotnet add package i26.AspNetCore
 ```
@@ -378,6 +381,84 @@ than 200 characters"* in any language without the domain ever composing a senten
 
 ---
 
+## Commands and queries
+
+A request is a record, its handler is a class, and the handler answers with a `Result`. There is no
+mediator in the middle: a caller asks the container for the handler of the exact request it means,
+which the compiler checks and a reader can follow to its declaration.
+
+```csharp
+using i26.Cqrs;
+
+public sealed record PublishCourseCommand(CourseId Id) : ICommand;              // no response
+public sealed record CreateCourseCommand(string Title) : ICommand<CourseId>;    // with one
+public sealed record GetCourseQuery(CourseId Id) : IQuery<CourseResponse>;      // reads only
+
+internal sealed class PublishCourseHandler(ICourseRepository courses)
+    : ICommandHandler<PublishCourseCommand>
+{
+    public async Task<Result> HandleAsync(PublishCourseCommand command, CancellationToken ct = default)
+    {
+        var course = await courses.FindAsync(command.Id, ct);
+
+        if (course is null)
+        {
+            return CourseErrors.NotFound;
+        }
+
+        return course.Publish();
+    }
+}
+```
+
+The response type lives on the request, so `ICommandHandler<CreateCourseCommand, CourseId>` and
+every call site agree on it without anyone restating it.
+
+### Registration
+
+The library cannot see your handlers, so you call this from wherever the application layer wires
+itself up:
+
+```csharp
+using i26.Cqrs;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddApplication(this IServiceCollection services)
+    {
+        services.AddHandlers(typeof(DependencyInjection).Assembly);
+        // validators, decorators, services…
+
+        return services;
+    }
+}
+```
+
+Every handler in the assembly is registered scoped, under the interfaces it implements — internal
+and private ones included, since a handler is an implementation detail of the application layer and
+has no reason to be public. Endpoints then ask for one directly:
+
+```csharp
+[FromServices] ICommandHandler<PublishCourseCommand> handler
+```
+
+**Two handlers for one request is refused**, naming both, instead of resolving to whichever was
+scanned last. That is the failure mode of copying a handler and forgetting to change the request it
+handles, and it is silent everywhere else. Scanning the same assembly twice is harmless.
+
+### Decorators
+
+Nothing here is decorated for you — validation, logging, transactions and caching are decisions
+about your application, not about a library. The registration is the plain closed-generic kind, so
+[Scrutor](https://github.com/khellang/Scrutor) wraps it the usual way:
+
+```csharp
+services.Decorate(typeof(ICommandHandler<,>), typeof(ValidationDecorator.CommandHandler<,>));
+services.Decorate(typeof(ICommandHandler<>), typeof(LoggingDecorator.CommandBaseHandler<>));
+```
+
+---
+
 ## ASP.NET Core
 
 ### Problem responses
@@ -491,12 +572,14 @@ using i26.AspNetCore.Diagnostics;
 using i26.AspNetCore.Endpoints;
 using i26.Core.Ids.Json;
 using i26.Core.Results;
+using i26.Cqrs;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddEndpoints(Assembly.GetExecutingAssembly());
+builder.Services.AddHandlers(typeof(PublishCourseCommand).Assembly);
 builder.Services.AddSingleton<IErrorTranslator, ResourceErrorTranslator>();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -590,7 +673,7 @@ dotnet build
 dotnet test
 ```
 
-207 tests run against all three target frameworks. The Entity Framework tests execute against an
+261 tests run against all three target frameworks. The Entity Framework tests execute against an
 in-memory SQLite database, including the DDL with the `"C"` collation; the ASP.NET Core tests build
 a real host and read back the routes and the JSON that reaches the wire. The snippets in this file
 are not decorative — the folds above are compiled and executed by `DocumentedUsageTests`.
