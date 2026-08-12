@@ -275,7 +275,8 @@ public class TypedIdTests
     [Fact]
     public void Format_matches_the_documented_regex_for_many_ids()
     {
-        var regex = new Regex($"^usr_{SuffixPattern}$", RegexOptions.CultureInvariant);
+        // A timeout on every regex, even one this simple: an unbounded match is a habit worth not having.
+        var regex = new Regex($"^usr_{SuffixPattern}$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
 
         for (var i = 0; i < 1_000; i++)
         {
