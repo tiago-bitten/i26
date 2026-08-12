@@ -2,7 +2,9 @@ root = true
 
 [*]
 indent_style = space
-end_of_line = crlf
+# LF everywhere, matching .gitattributes: the repository is built on Windows and on Linux, and a
+# formatting check that depends on which one checked out the files is not a check.
+end_of_line = lf
 charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true

@@ -1,0 +1,15 @@
+# Text files are stored and checked out with LF, on every platform. Without this, a Windows clone
+# with core.autocrlf=true gets CRLF in the working tree while CI gets LF, and anything that reads a
+# line ending — a formatting check, a hash, a diff — disagrees with itself.
+* text=auto eol=lf
+
+*.sln text eol=crlf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.snk binary
+*.nupkg binary

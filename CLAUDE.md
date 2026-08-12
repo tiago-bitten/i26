@@ -21,7 +21,13 @@ references `i26.Core` and nothing else.
 dotnet build i26.sln            # all 5 projects x 3 target frameworks
 dotnet test i26.sln             # 330 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
+dotnet format                   # fixes what the CI formatting gate checks
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and Windows for every push and pull
+request: Release build, tests on each target framework, `dotnet format --verify-no-changes`, then
+pack. Two things follow from warnings being errors: an analyzer complaint fails CI, and so does a
+NuGet advisory against anything referenced — which is why Dependabot keeps the references moving.
 
 ## Non-negotiables
 
@@ -37,6 +43,8 @@ dotnet build i26.sln -c Release # must end with 0 warnings
 - **Never add a `Co-Authored-By` trailer to a commit.**
 - **Every regex takes a timeout.** Better still, if the rule is a character class, write the loop —
   see `CursorSqlColumn`.
+- **Line endings are LF**, fixed by `.gitattributes` and `.editorconfig`. CRLF in a file makes the
+  formatting gate fail on Linux.
 
 ## Conventions
 

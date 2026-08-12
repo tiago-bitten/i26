@@ -12,7 +12,8 @@
     </PropertyGroup>
 
     <PropertyGroup Label="Package">
-        <Version>0.1.0</Version>
+        <!-- A prefix rather than a fixed version, so CI can pack 0.1.0-ci.42 by passing a suffix. -->
+        <VersionPrefix>0.1.0</VersionPrefix>
         <Authors>Tiago Bittencourt</Authors>
         <Company>i26</Company>
         <Product>i26</Product>

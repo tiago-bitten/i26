@@ -1,5 +1,6 @@
 # i26
 
+[![ci](https://github.com/tiago-bitten/i26/actions/workflows/ci.yml/badge.svg)](https://github.com/tiago-bitten/i26/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-8.0%20%7C%209.0%20%7C%2010.0-512BD4.svg)](#compatibility)
 
@@ -775,7 +776,12 @@ warnings as errors.
 ```bash
 dotnet build
 dotnet test
+dotnet format          # the formatting CI verifies
 ```
+
+Every push and pull request runs the same three gates on Ubuntu and on Windows: a Release build
+with warnings as errors, the tests on each of the three target frameworks, and a formatting check.
+Packages are built and attached to the run so a branch can be tried out before it is released.
 
 330 tests run against all three target frameworks. The Entity Framework tests execute against an
 in-memory SQLite database, including the DDL with the `"C"` collation, and the paging tests walk
