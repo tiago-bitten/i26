@@ -65,16 +65,17 @@ its half of the story continues.
 ## Installing
 
 ```bash
-dotnet add package i26.Core --prerelease
-dotnet add package i26.Cqrs --prerelease
-dotnet add package i26.EntityFrameworkCore --prerelease
-dotnet add package i26.Dapper --prerelease
-dotnet add package i26.Hosting --prerelease
-dotnet add package i26.AspNetCore --prerelease
+dotnet add package i26.Core
+dotnet add package i26.Cqrs
+dotnet add package i26.EntityFrameworkCore
+dotnet add package i26.Dapper
+dotnet add package i26.Hosting
+dotnet add package i26.AspNetCore
 ```
 
-The `--prerelease` goes away with 0.1.0. Until then what is on nuget.org is a release candidate,
-published from a tag by [the release workflow](.github/workflows/release.yml).
+Take only what you need: a domain project takes `i26.Core` and the rest follows the dependency it
+carries. Every version on nuget.org was published from a tag by
+[the release workflow](.github/workflows/release.yml).
 
 ---
 
