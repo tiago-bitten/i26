@@ -6,6 +6,25 @@ namespace i26.EntityFrameworkCore.DomainEvents;
 /// <summary>Wiring of the domain event interceptor into a context.</summary>
 public static class DomainEventDbContextOptionsExtensions
 {
+    /// <summary>Collects what this context saves into the given <see cref="DomainEventQueue"/>.</summary>
+    /// <param name="builder">The options being built.</param>
+    /// <param name="queue">The queue of the unit of work this context belongs to.</param>
+    /// <param name="publishing">When to publish. Defaults to right after a successful save.</param>
+    /// <remarks>
+    /// The overload for a context built by hand — a test, a pooled context, a factory — where there
+    /// is no scope to take the queue from.
+    /// </remarks>
+    public static DbContextOptionsBuilder UseDomainEvents(
+        this DbContextOptionsBuilder builder,
+        DomainEventQueue queue,
+        DomainEventPublishing publishing = DomainEventPublishing.AfterSaveChanges)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(queue);
+
+        return builder.AddInterceptors(new DomainEventInterceptor(queue, publishing));
+    }
+
     /// <summary>Collects what this context saves into the <see cref="DomainEventQueue"/> of the scope.</summary>
     /// <param name="builder">The options being built.</param>
     /// <param name="serviceProvider">The scope the context is being created in.</param>
@@ -14,8 +33,7 @@ public static class DomainEventDbContextOptionsExtensions
     /// There is no <see cref="DomainEventQueue"/> in the scope.
     /// </exception>
     /// <remarks>
-    /// Called from the two-argument <c>AddDbContext</c>, whose provider is the scoped one. A pooled
-    /// or factory-created context has no scoped queue to resolve and builds the interceptor itself.
+    /// Called from the two-argument <c>AddDbContext</c>, whose provider is the scoped one.
     /// </remarks>
     public static DbContextOptionsBuilder UseDomainEvents(
         this DbContextOptionsBuilder builder,
@@ -31,6 +49,6 @@ public static class DomainEventDbContextOptionsExtensions
                 "collection, and pass the scoped provider that AddDbContext<TContext>((provider, " +
                 "options) => …) hands to its callback.");
 
-        return builder.AddInterceptors(new DomainEventInterceptor(queue, publishing));
+        return builder.UseDomainEvents(queue, publishing);
     }
 }

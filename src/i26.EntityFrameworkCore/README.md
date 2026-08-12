@@ -8,6 +8,7 @@ dotnet add package i26.EntityFrameworkCore
 ```
 
 - [Typed identifiers](#typed-identifiers)
+- [Base entities](#base-entities)
 - [Cursor pagination](#cursor-pagination)
 - [Domain events](#domain-events)
 - [Awaiting a query without an ORM](#awaiting-a-query-without-an-orm)
@@ -41,6 +42,47 @@ builder.ApplyTypedIdConventions(TypedIdStorage.ProviderDefault, typeof(Course).A
 That leaves the column type and the collation to the provider. Ordering then depends on that
 collation being binary — without one, the database and `TypedId.Compare` can disagree about where a
 page stops.
+
+---
+
+## Base entities
+
+An [`Entity<TId>`](https://github.com/tiago-bitten/i26/blob/main/src/i26.Core/README.md#base-entities)
+declares `CreatedAt`, `UpdatedAt` and — when it is deletable — `DeletedAt`, and never sets any of
+them: it has no clock, and one it was handed would be one more thing to pass around. This does it,
+on the way into the save:
+
+```csharp
+using i26.EntityFrameworkCore.Entities;
+
+builder.Services.AddDbContext<AppDbContext>((provider, options) => options
+    .UseNpgsql(connectionString)
+    .UseEntityTimestamps()          // or .UseEntityTimestamps(timeProvider) in a test
+    .UseDomainEvents(provider));
+```
+
+An insert stamps `CreatedAt` and `UpdatedAt`; an update stamps `UpdatedAt`; and `DeletedAt` is
+stamped when `IsDeleted` becomes true, because a soft delete reaches the database as an update like
+any other. The time comes from a `TimeProvider`, so a test decides what "now" is instead of
+asserting against the clock.
+
+The properties keep their private setters — the interceptor writes through Entity Framework's own
+metadata, which is what stops application code from choosing when something was created.
+
+### Hiding what was deleted
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    // Whatever else this configures, first…
+    modelBuilder.ApplySoftDeleteFilter();
+}
+```
+
+Every entity implementing `ISoftDeletable` gets `HasQueryFilter(row => !row.IsDeleted)`, built on
+the concrete type rather than through the interface, since a member access through a cast has no
+translation. Call it **after** the entity types exist: a filter applies to the model as it is at
+that moment. A query that means to see them says `IgnoreQueryFilters()`.
 
 ---
 

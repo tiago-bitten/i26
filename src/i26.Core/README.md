@@ -9,6 +9,7 @@ dotnet add package i26.Core
 ```
 
 - [Typed identifiers](#typed-identifiers)
+- [Base entities](#base-entities)
 - [Result pattern](#result-pattern)
 - [Error types](#error-types)
 - [Domain events](#domain-events)
@@ -229,6 +230,74 @@ id, and the only thing missing is the one operation that would be a lie.
 `Minted = false` is enforced rather than implied. Leaving `New()` off a hand-written id was the
 whole of the old convention, and `TypedId.New<AuthUserId>()` walked straight around it — now it
 throws, naming the prefix and the service that owns it.
+
+---
+
+## Base entities
+
+The base is generic over the id, so an entity carries the id declared for it and no other:
+
+```csharp
+using i26.Core.Entities;
+
+public sealed class Course : Entity<CourseId>
+{
+    private Course() { }                                  // the persistence layer materialises with this
+
+    public string Title { get; private set; } = string.Empty;
+
+    public static Course Open(string title)
+    {
+        var course = new Course { Title = title };        // Id is already a new CourseId
+        course.Raise(new CourseOpened(course.Id, title));
+
+        return course;
+    }
+}
+```
+
+`Course` has a `CourseId` and `Student` has a `StudentId`, and handing one to the other does not
+compile. The parameterless constructor mints the id, so an entity is born with one; an id belonging
+to another service — `Minted = false` — is left unset instead, because only that service is allowed
+to invent one, and `Entity(TId id)` is how you assign what it handed over.
+
+What comes with it:
+
+| | |
+| --- | --- |
+| `Id` | The typed id, minted at construction |
+| `CreatedAt`, `UpdatedAt` | Stamped by the persistence layer, not by the entity — it has no clock |
+| `DomainEvents`, `ClearDomainEvents()` | [The events](#domain-events) it raised, for whoever collects them |
+| `Raise(…)` | Protected, so an event is raised by the behaviour that caused it and by nothing else |
+
+**Two entities of the same type with the same id are equal**, however many times the row was loaded.
+One whose id was never assigned is only equal to itself: an id nobody set identifies nothing.
+
+And because `Id` and `CreatedAt` are already there, an entity **is** an
+[`ICursorPageable<TId>`](#cursor-pagination) — paging over the entities themselves needs no
+projection and no extra interface.
+
+### Deleting without deleting
+
+```csharp
+public sealed class Course : DeletableEntity<CourseId>;
+```
+
+```csharp
+var deleted = course.Delete();     // Result: entity.alreadyDeleted if it already was
+var back = course.Restore();       // Result: entity.notDeleted if it never was
+```
+
+`IsDeleted` and `DeletedAt` come with it, and i26.EntityFrameworkCore has the query filter that
+hides those rows and the interceptor that stamps the instant. `Delete` is virtual, so an entity with
+a reason of its own has the last word:
+
+```csharp
+public override Result Delete() => HasShipped ? OrderErrors.Shipped : base.Delete();
+```
+
+None of this is required. An entity that would rather not inherit implements
+[`IHasDomainEvents`](#domain-events) — a list and two members — and keeps its own shape.
 
 ---
 

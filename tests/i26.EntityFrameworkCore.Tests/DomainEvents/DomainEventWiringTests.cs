@@ -124,7 +124,8 @@ public sealed class DomainEventWiringTests : IDisposable
         Assert.Throws<ArgumentNullException>(() =>
             ((DbContextOptionsBuilder)null!).UseDomainEvents(new ServiceCollection().BuildServiceProvider()));
 
-        Assert.Throws<ArgumentNullException>(() => builder.UseDomainEvents(null!));
+        Assert.Throws<ArgumentNullException>(() => builder.UseDomainEvents((IServiceProvider)null!));
+        Assert.Throws<ArgumentNullException>(() => builder.UseDomainEvents((DomainEventQueue)null!));
         Assert.Throws<ArgumentNullException>(() => new DomainEventInterceptor(null!));
     }
 }

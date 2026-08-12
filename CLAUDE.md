@@ -6,10 +6,10 @@ packages, multi-targeting net8.0, net9.0 and net10.0.
 
 | Project | Holds | External dependency |
 | --- | --- | --- |
-| `src/i26.Core` | Typed ids, `Result`/`Error`, cursor paging, domain events, specifications, the query seam | **none** |
+| `src/i26.Core` | Typed ids, base entities, `Result`/`Error`, cursor paging, domain events, specifications, queries | **none** |
 | `src/i26.Core.Generators` | The `[TypedId]` source generator, shipped inside i26.Core | Roslyn (compile only) |
 | `src/i26.Cqrs` | `ICommand`/`IQuery`, handler registration, the in-process domain event dispatcher | DI abstractions |
-| `src/i26.EntityFrameworkCore` | Typed id conventions, the async query backend, the domain event interceptor | EF Core Relational |
+| `src/i26.EntityFrameworkCore` | Typed id conventions, the query backend, the domain event and timestamp interceptors | EF Core Relational |
 | `src/i26.Dapper` | Paging over a hand-written query | Dapper |
 | `src/i26.Hosting` | Background domain event dispatch, as a hosted service | Hosting abstractions |
 | `src/i26.AspNetCore` | ProblemDetails, `IEndpoint`, exception handler | ASP.NET shared framework |
@@ -26,7 +26,7 @@ library — not because it is a separate thing.
 
 ```bash
 dotnet build i26.sln            # all 6 packages x 3 target frameworks
-dotnet test i26.sln             # 530 tests
+dotnet test i26.sln             # 554 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
@@ -189,6 +189,11 @@ rewrites the file. `i26.Core.Generators.Tests` pins both with `trackIncrementalG
 parts arrives twice, and writing the same hint name twice throws out of `AddSource` and discards
 every generated id in the compilation. Dedupe over attribute applications — deduping over declaring
 parts silently drops a type whose attribute sits on the part that does not sort first.
+
+**A typed id declared inside another type fails as a missing boxing conversion, not as
+`I26ID004`.** Nesting is refused by the generator, so it writes no members — and the first thing
+the compiler notices is that the struct does not satisfy `ITypedId<TSelf>`. The diagnostic is there
+too, further up the list. Test ids go at namespace level, next to the entities that use them.
 
 **A `BackgroundService` that stops on its stopping token throws away whatever it was queueing
 for.** Cancelling the read is what the shape suggests, and it drops every event still in the
