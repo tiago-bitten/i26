@@ -6,11 +6,44 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+
+    # Two floors here are decisions rather than versions, and a bot cannot tell the difference.
+    # Patches inside each line still arrive; a real advisory fails the build through NuGetAudit
+    # whatever this file says.
+    ignore:
+      # A generator compiled against Roslyn X does not load in a compiler older than X: csc reports
+      # CS9057, skips the generator, and the consumer gets errors about the members it did not
+      # write. 4.8 is the floor of the oldest supported SDK, on purpose, and the generator uses
+      # nothing newer than the 4.3 API — moving it costs consumers and buys nothing. None of it
+      # ships either: the reference is PrivateAssets="all".
+      - dependency-name: Microsoft.CodeAnalysis*
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+
+      # Runtime libraries are pinned per target framework, which dependabot cannot express: it sees
+      # one version string per reference and offers the newest for the net8.0 condition as readily
+      # as for the net10.0 one. Which line a framework sits on is a decision made by hand.
+      - dependency-name: Microsoft.Extensions.*
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+
+      - dependency-name: Microsoft.EntityFrameworkCore.*
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+
     groups:
+      # What is left in the group is what is not pinned per framework, so one pull request per week
+      # is one decision. The excluded ones arrive on their own, patch by patch.
       microsoft:
         patterns:
           - Microsoft.*
           - System.*
+        exclude-patterns:
+          - Microsoft.Extensions.*
+          - Microsoft.EntityFrameworkCore.*
       testing:
         patterns:
           - xunit*
