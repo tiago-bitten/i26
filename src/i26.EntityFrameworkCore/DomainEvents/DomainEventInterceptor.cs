@@ -4,15 +4,10 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace i26.EntityFrameworkCore.DomainEvents;
 
-/// <summary>
-/// Takes the domain events off the tracked entities as they are saved, and — unless publication was
-/// left to the caller — publishes them once the save has succeeded.
-/// </summary>
+/// <summary>Takes the domain events off the entities being saved, and publishes them.</summary>
 /// <remarks>
-/// Scoped, alongside the <see cref="DomainEventQueue"/> it fills:
-/// <c>options.UseDomainEvents(serviceProvider)</c> wires both. The synchronous <c>SaveChanges</c>
-/// collects but never publishes — publication is asynchronous — so a synchronous save leaves the
-/// events queued for the next publication.
+/// Scoped, alongside the queue it fills — <c>options.UseDomainEvents(provider)</c> wires both. The
+/// synchronous <c>SaveChanges</c> collects but never publishes, leaving the events queued.
 /// </remarks>
 public sealed class DomainEventInterceptor : SaveChangesInterceptor
 {

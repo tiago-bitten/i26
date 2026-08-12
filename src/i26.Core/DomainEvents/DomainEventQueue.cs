@@ -1,11 +1,7 @@
 namespace i26.Core.DomainEvents;
 
 /// <summary>The domain events taken off the entities, waiting to be published.</summary>
-/// <remarks>
-/// One queue per unit of work — registered scoped. Collecting and publishing are separate steps on
-/// purpose: something takes the events off the entities as they are saved, and whoever owns the
-/// transaction publishes them once it has committed.
-/// </remarks>
+/// <remarks>One queue per unit of work: registered scoped, published by whoever owns the transaction.</remarks>
 public sealed class DomainEventQueue
 {
     private readonly IDomainEventDispatcher _dispatcher;
@@ -32,11 +28,8 @@ public sealed class DomainEventQueue
         }
     }
 
-    /// <summary>Adds events to the queue.</summary>
-    /// <remarks>
-    /// The events are copied as they arrive, so the caller is free to clear the list it handed over
-    /// — which is exactly what taking them off an entity does.
-    /// </remarks>
+    /// <summary>Adds events to the queue, copying them.</summary>
+    /// <remarks>The caller is free to clear the list it handed over, which is what collecting does.</remarks>
     public void Enqueue(IEnumerable<IDomainEvent> domainEvents)
     {
         ArgumentNullException.ThrowIfNull(domainEvents);
@@ -57,13 +50,10 @@ public sealed class DomainEventQueue
     }
 
     /// <summary>Publishes everything queued, and everything the handlers queue in turn.</summary>
-    /// <remarks>
-    /// The queue is drained before each dispatch, so an event goes out once and a handler that saves
-    /// further changes has its own events published by this same call — there is no second call to
-    /// remember at the end of a handler.
-    /// </remarks>
     public async Task PublishAsync(CancellationToken cancellationToken = default)
     {
+        // Drained before each dispatch, so an event goes out once, and a handler that saves further
+        // changes has its own events published here rather than needing a second call of its own.
         while (true)
         {
             IDomainEvent[] batch;

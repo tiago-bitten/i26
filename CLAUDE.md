@@ -6,10 +6,10 @@ multi-targeting net8.0, net9.0 and net10.0.
 
 | Project | Holds | External dependency |
 | --- | --- | --- |
-| `src/i26.Core` | Typed ids, `Result`/`Error`, pagination and domain event contracts, `DomainEventQueue` | **none** |
+| `src/i26.Core` | Typed ids, `Result`/`Error`, cursor paging, domain events, specifications, the query seam | **none** |
 | `src/i26.Core.Generators` | The `[TypedId]` source generator, shipped inside i26.Core | Roslyn (compile only) |
 | `src/i26.Cqrs` | `ICommand`/`IQuery`, handler registration, the in-process domain event dispatcher | DI abstractions |
-| `src/i26.EntityFrameworkCore` | Typed id conventions, paging over `IQueryable`, the domain event interceptor | EF Core Relational |
+| `src/i26.EntityFrameworkCore` | Typed id conventions, the async query backend, the domain event interceptor | EF Core Relational |
 | `src/i26.Dapper` | Paging over a hand-written query | Dapper |
 | `src/i26.AspNetCore` | ProblemDetails, `IEndpoint`, exception handler | ASP.NET shared framework |
 
@@ -25,7 +25,7 @@ library — not because it is a separate thing.
 
 ```bash
 dotnet build i26.sln            # all 5 projects x 3 target frameworks
-dotnet test i26.sln             # 476 tests
+dotnet test i26.sln             # 519 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
@@ -165,6 +165,24 @@ rewrites the file. `i26.Core.Generators.Tests` pins both with `trackIncrementalG
 parts arrives twice, and writing the same hint name twice throws out of `AddSource` and discards
 every generated id in the compilation. Dedupe over attribute applications — deduping over declaring
 parts silently drops a type whose attribute sits on the part that does not sort first.
+
+**EF Core inlines `Expression.Invoke`, so composing predicates with it is not the bug it looks
+like.** Verified on EF 8 and EF 10 against SQLite: `Invoke(left, p) && Invoke(right, p)` comes out
+as a plain `WHERE a AND b`, because the query pipeline removes invocations before translating. The
+`Predicates.Combine` in this repository rebinds the parameter anyway — a provider without that step
+would client-evaluate the lot — but the comment saying so had to be corrected once already. Do not
+write "EF cannot translate this" without running it.
+
+**An `Expression<Func<T, bool>>` used inside another expression tree is a field access, not a
+predicate.** `q => q.Count(predicate)` compiles to `Queryable.Count(q, <member access>)`, and a
+provider reading that tree finds an object where a quoted lambda should be. Every predicate overload
+in `AsyncQueryExecutorExtensions` applies a `Where` and asks the question of what is left, which is
+the same SQL and also works on the in-memory fallback. `AllAsync` is the same trick inverted —
+"nothing fails it" — because `All` has no `Where` form.
+
+**SQLite refuses `Sum` over `decimal`, and only on EF Core 8.** `SqliteQueryableAggregateMethodTranslator`
+throws `NotSupportedException`; EF Core 9 and 10 translate it. A test that aggregates in the query
+sums an `int`, or it passes on two target frameworks out of three.
 
 **A deleted entity is gone from the change tracker before `SavedChanges` runs.** `AcceptAllChanges`
 detaches it as part of the save, so an interceptor that collects domain events afterwards silently

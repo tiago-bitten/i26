@@ -40,6 +40,8 @@ app.MapPost("courses/{id}/publish", Handle)
 - [Result pattern](#result-pattern)
 - [Commands and queries](#commands-and-queries)
 - [Domain events](#domain-events)
+- [Awaiting a query without an ORM](#awaiting-a-query-without-an-orm)
+- [Specifications](#specifications)
 - [Cursor pagination](#cursor-pagination)
 - [ASP.NET Core](#aspnet-core)
 - [Putting it together](#putting-it-together)
@@ -53,7 +55,7 @@ app.MapPost("courses/{id}/publish", Handle)
 
 | Package | What it holds | Depends on |
 | --- | --- | --- |
-| `i26.Core` | Typed ids and their generator, `Result`/`Error`, pagination and domain event contracts | nothing outside the BCL |
+| `i26.Core` | Typed ids and their generator, `Result`/`Error`, cursor paging, domain event and query contracts | nothing outside the BCL |
 | `i26.Cqrs` | Command, query and domain event contracts, the handler registration, an in-process dispatcher | `Microsoft.Extensions.DependencyInjection.Abstractions` |
 | `i26.EntityFrameworkCore` | Typed id conventions, cursor paging over `IQueryable`, domain event collection on save | `Microsoft.EntityFrameworkCore.Relational` |
 | `i26.Dapper` | Typed id handlers, cursor paging over a hand-written query | `Dapper` |
@@ -700,6 +702,193 @@ services.AddDomainEvents();
 
 ---
 
+## Awaiting a query without an ORM
+
+An application layer can write LINQ against an `IQueryable<T>` with no reference to anything —
+`Where`, `Select`, `OrderBy` and the rest are the BCL. What it cannot do is **await** one:
+`ToListAsync` and `CountAsync` belong to Entity Framework, and one `using` for them drags the ORM
+into the layer that was supposed to know nothing about it.
+
+`IAsyncQueryExecutor` is that one seam, and it lives in `i26.Core`:
+
+```csharp
+using i26.Core.Queries;
+
+internal sealed class ListCoursesHandler(ICourseQueries courses, IAsyncQueryExecutor executor)
+    : IQueryHandler<ListCoursesQuery, PagedResponse<CourseRow>>
+{
+    public async Task<Result<PagedResponse<CourseRow>>> HandleAsync(
+        ListCoursesQuery query, CancellationToken ct = default)
+    {
+        var rows = courses.Published()                              // IQueryable<Course>, from your port
+            .Where(course => course.TenantId == query.TenantId)
+            .Select(course => new CourseRow { Id = course.Id, CreatedAt = course.CreatedAt });
+
+        return await rows.ToPagedResponseAsync<CourseRow, CourseId>(executor, query.Page, ct: ct);
+    }
+}
+```
+
+That project references `i26.Core` and `i26.Cqrs`. No `Microsoft.EntityFrameworkCore` anywhere.
+
+### The two methods behind it
+
+```csharp
+Task<TResult> ExecuteAsync<T, TResult>(IQueryable<T> query, Expression<Func<IQueryable<T>, TResult>> terminal, CancellationToken ct = default);
+Task<List<T>>  ToListAsync<T>(IQueryable<T> query, CancellationToken ct = default);
+```
+
+The first takes the terminal operator as an expression and hands it to the provider — which is what
+`CountAsync` does inside Entity Framework, one operator at a time. Writing it once means the
+familiar names are extension methods over it rather than interface members, and an operator nobody
+wrote a method for is the operator itself:
+
+```csharp
+await executor.CountAsync(invoices, ct);
+await executor.FirstOrDefaultAsync(invoices, invoice => invoice.Number == number, ct);
+await executor.ExecuteAsync(invoices, q => q.Sum(invoice => invoice.Amount), ct);   // no SumAsync needed
+await executor.ExecuteAsync(invoices, q => q.GroupBy(i => i.Status).Count(), ct);
+```
+
+`Count`, `LongCount`, `Any`, `All`, `First`, `FirstOrDefault`, `Single`, `SingleOrDefault`, `ToList`
+and `ToArray` have methods, with and without a predicate. Everything else is one `ExecuteAsync`.
+
+> A predicate always reaches the provider as a **quoted lambda**, never as a captured variable —
+> `q => q.Count(predicate)` inside an expression tree becomes a field access of type
+> `Expression<Func<T, bool>>`, which no provider can read. That is why the predicate overloads apply
+> a `Where` and count what is left; same SQL, and it works on the in-memory fallback too.
+
+### Wiring it
+
+```csharp
+using i26.EntityFrameworkCore.Queries;
+
+builder.Services.AddEfCoreAsyncQueries();
+```
+
+That registers the Entity Framework backend and the executor in front of it, both singleton. The
+executor picks a backend **per query**, by looking at `IQueryable.Provider`, so a second store is a
+second backend and nothing in the application layer changes:
+
+```csharp
+services.TryAddEnumerable(ServiceDescriptor.Singleton<IAsyncQueryBackend, MongoAsyncQueryBackend>());
+```
+
+With no backend able to run a query, the operator runs on the calling thread and the answer is still
+right. That is what makes an application service testable against `List<T>.AsQueryable()` with no
+database in sight — and it is also the trap to know about: a query that should have been
+asynchronous and silently was not looks exactly like one that was.
+
+### Where the abstraction stops
+
+`Include`, `AsNoTracking`, `AsSplitQuery` and `IgnoreQueryFilters` are Entity Framework, and no
+interface here hides them. The test for whether something belongs in a port is whether the next
+store could answer it: `AsNoTracking` only means something because Entity Framework has a change
+tracker, and `Include` is a loading strategy that a document store either does not need or spells
+`$lookup`. Neither survives the move, so neither is a port.
+
+What survives is the intent. The port says which rows, the adapter decides how they are fetched:
+
+```csharp
+// Application declares the port
+public interface ICourseQueries
+{
+    IQueryable<Course> Published();
+}
+
+// The adapter is where the ORM lives
+internal sealed class CourseQueries(AppDbContext db) : ICourseQueries
+{
+    public IQueryable<Course> Published() =>
+        db.Courses.AsNoTracking().Where(course => course.IsPublished);
+}
+```
+
+A port shaped as `Get(bool asNoTracking, params string[] includes)` fails that test twice over: the
+first parameter is Entity Framework's vocabulary in an application's interface, and the second is
+`Include` by magic string, which no compiler checks and no rename follows.
+
+`Include` is worth a second look even inside the adapter. On a read, what the caller wants is a
+projection, and a projection is plain LINQ the application can write itself — the ORM turns
+`course.Teacher.Name` into a join with no `Include` in sight:
+
+```csharp
+courses.Published().Select(course => new CourseRow
+{
+    Id = course.Id,
+    CreatedAt = course.CreatedAt,
+    Teacher = course.Teacher.Name,
+});
+```
+
+Which leaves `Include` where it belongs: loading a tracked aggregate to change it. That path is not
+an `IQueryable` at all — it is a repository handing back the entity.
+
+---
+
+## Specifications
+
+A rule that has to be asked twice — of a row you are holding, and of a table you are querying — is
+worth writing once:
+
+```csharp
+using i26.Core.Specifications;
+
+public sealed class ConflictingPhone(UserId exclude, IReadOnlyCollection<string> digits)
+    : Specification<User>
+{
+    public override Expression<Func<User, bool>> ToExpression() =>
+        user => user.Id != exclude && user.Phones.Any(phone => digits.Contains(phone.Digits));
+}
+```
+
+```csharp
+if (new ConflictingPhone(command.UserId, digits).IsSatisfiedBy(user))   // in memory
+await executor.AnyAsync(users.Where(new ConflictingPhone(command.UserId, digits)), ct);   // in SQL
+```
+
+`Where` takes the specification directly — no `spec.ToExpression()` at the call site — and the
+compiled form is cached per instance, because compiling an expression costs a thousand times what
+calling it does and asking one rule of every item of a list is how `IsSatisfiedBy` gets used.
+
+### Composing
+
+```csharp
+var wanted = new Published().And(new Popular(minimum: 10).Or(new Featured())).Not();
+
+var rows = await executor.ToListAsync(courses.Where(wanted), ct);
+```
+
+`And`, `Or` and `Not` are extension methods on `ISpecification<T>`, so a rule that implements the
+interface without inheriting `Specification<T>` composes the same way, and what comes back is a
+`Specification<T>` that caches like any other.
+
+What comes out of a composition is `course => a && b` — one parameter, no `Invoke`. The shorter
+implementation, `Expression.Invoke(left, p) && Expression.Invoke(right, p)`, translates fine under
+Entity Framework, which removes invocations before it translates anything; it is the second provider
+behind an `IAsyncQueryBackend` that would not. Rebinding the parameter asks nobody for the favour,
+and a test pins that the tree has no invocation left in it.
+
+### Filters that may not apply
+
+A search request with five optional fields is five `if`s around a reassignment, or this:
+
+```csharp
+using i26.Core.Queries;
+
+var rows = courses
+    .Where(new Published())
+    .WhereIf(request.Title is not null, course => course.Title == request.Title)
+    .WhereIf(request.TeacherId is not null, course => course.TeacherId == request.TeacherId)
+    .WhereIf(request.OnlyPopular, new Popular(minimum: 10));
+```
+
+The condition is a question about the request, not about a row, and it is answered before the query
+is built — a `WhereIf` that does not apply returns the same query object it was given, so nothing
+reaches the database. There is an `IEnumerable<T>` overload of each for the same code over a list.
+
+---
+
 ## Cursor pagination
 
 A page remembers **where it stopped**, not how far it got. The next page is an index seek —
@@ -760,6 +949,17 @@ than a 500.
 
 Name both types when the id is a typed one; a row whose id is a `Guid` infers the rest and stays
 `ToPagedResponseAsync(request)`.
+
+The paging itself lives in `i26.Core`, over an
+[`IAsyncQueryExecutor`](#awaiting-a-query-without-an-orm) — this overload is the one for code that
+already has Entity Framework in front of it. An application layer that does not pages the same way,
+passing the executor:
+
+```csharp
+using i26.Core.Pagination;
+
+var page = await rows.ToPagedResponseAsync<CourseRow, CourseId>(executor, request, ct: ct);
+```
 
 > Project with an **object initializer**, not a constructor. Entity Framework binds
 > `new CourseRow { CreatedAt = … }` back to the column it came from and can order by it; it cannot

@@ -1,7 +1,6 @@
 using System.Linq.Expressions;
-using i26.Core.Pagination;
 
-namespace i26.EntityFrameworkCore.Pagination;
+namespace i26.Core.Pagination;
 
 /// <summary>
 /// The ordering and the keyset predicate of a page, as expressions the provider can translate.

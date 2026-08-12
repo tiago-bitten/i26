@@ -1,10 +1,14 @@
 using i26.Core.Pagination;
 using i26.Core.Results;
-using Microsoft.EntityFrameworkCore;
+using i26.EntityFrameworkCore.Queries;
 
 namespace i26.EntityFrameworkCore.Pagination;
 
-/// <summary>Cursor paging over an <see cref="IQueryable{T}"/>.</summary>
+/// <summary>Cursor paging over an <see cref="IQueryable{T}"/> that Entity Framework built.</summary>
+/// <remarks>
+/// The paging lives in i26.Core, over an <see cref="i26.Core.Queries.IAsyncQueryExecutor"/>; this
+/// overload is for code that already has Entity Framework in front of it.
+/// </remarks>
 public static class QueryablePagingExtensions
 {
     /// <summary>Reads one page, newest first, from a query that arrives filtered but not ordered.</summary>
@@ -35,53 +39,16 @@ public static class QueryablePagingExtensions
     /// The page, or <see cref="PaginationErrors.InvalidCursor"/> when the cursor cannot be read.
     /// </returns>
     /// <remarks>
-    /// Project with an object initializer, not a constructor: Entity Framework binds
-    /// <c>new Row { CreatedAt = … }</c> back to its column and can order by it, but cannot do the
-    /// same for <c>new Row(…)</c>. Build a constructor shape afterwards with
-    /// <see cref="PagedResponse{T}.Map{TOut}"/>. For this to stay an index seek, the table wants an
-    /// index on <c>(CreatedAt DESC, Id DESC)</c> behind whatever the query filters by.
+    /// Project with an object initializer: Entity Framework binds <c>new Row { CreatedAt = … }</c>
+    /// back to its column and can order by it, and cannot do the same for <c>new Row(…)</c>.
     /// </remarks>
-    public static async Task<Result<PagedResponse<T>>> ToPagedResponseAsync<T, TId>(
+    public static Task<Result<PagedResponse<T>>> ToPagedResponseAsync<T, TId>(
         this IQueryable<T> query,
         CursorPageRequest request,
         int maxLimit = CursorPageRequest.DefaultMaxLimit,
         CancellationToken cancellationToken = default)
         where T : ICursorPageable<TId>
         where TId : IComparable<TId>, IParsable<TId>
-    {
-        ArgumentNullException.ThrowIfNull(query);
-        ArgumentNullException.ThrowIfNull(request);
-
-        var page = request.Normalize(maxLimit);
-
-        DateTimeOffset cursorCreatedAt = default;
-        TId cursorId = default!;
-
-        if (!string.IsNullOrEmpty(page.Cursor) &&
-            !Cursor.TryDecode(page.Cursor, out cursorCreatedAt, out cursorId))
-        {
-            return PaginationErrors.InvalidCursor;
-        }
-
-        // Counted before the cursor narrows anything: the total is of the whole matching set, not
-        // of what is left after this page.
-        int? total = page.IncludeTotal
-            ? await query.CountAsync(cancellationToken).ConfigureAwait(false)
-            : null;
-
-        if (!string.IsNullOrEmpty(page.Cursor))
-        {
-            query = query.Where(CursorPredicate<T, TId>.After(cursorCreatedAt, cursorId));
-        }
-
-        // One row more than asked for: its presence is the answer to "is there a next page".
-        var items = await query
-            .OrderByDescending(CursorPredicate<T, TId>.CreatedAtSelector)
-            .ThenByDescending(CursorPredicate<T, TId>.IdSelector)
-            .Take(page.Limit + 1)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        return CursorPage.From<T, TId>(items, page.Limit, total);
-    }
+        => query.ToPagedResponseAsync<T, TId>(
+            EfCoreAsyncQueryBackend.Default, request, maxLimit, cancellationToken);
 }

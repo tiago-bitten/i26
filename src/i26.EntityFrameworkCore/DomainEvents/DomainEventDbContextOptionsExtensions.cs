@@ -6,10 +6,7 @@ namespace i26.EntityFrameworkCore.DomainEvents;
 /// <summary>Wiring of the domain event interceptor into a context.</summary>
 public static class DomainEventDbContextOptionsExtensions
 {
-    /// <summary>
-    /// Collects the domain events of the entities this context saves into the
-    /// <see cref="DomainEventQueue"/> of the current scope.
-    /// </summary>
+    /// <summary>Collects what this context saves into the <see cref="DomainEventQueue"/> of the scope.</summary>
     /// <param name="builder">The options being built.</param>
     /// <param name="serviceProvider">The scope the context is being created in.</param>
     /// <param name="publishing">When to publish. Defaults to right after a successful save.</param>
@@ -17,10 +14,8 @@ public static class DomainEventDbContextOptionsExtensions
     /// There is no <see cref="DomainEventQueue"/> in the scope.
     /// </exception>
     /// <remarks>
-    /// Called from the two-argument overload of <c>AddDbContext</c>, whose service provider is the
-    /// scoped one. A pooled or factory-created context is built from the root provider instead,
-    /// where a scoped queue cannot be resolved — those construct the
-    /// <see cref="DomainEventInterceptor"/> themselves.
+    /// Called from the two-argument <c>AddDbContext</c>, whose provider is the scoped one. A pooled
+    /// or factory-created context has no scoped queue to resolve and builds the interceptor itself.
     /// </remarks>
     public static DbContextOptionsBuilder UseDomainEvents(
         this DbContextOptionsBuilder builder,

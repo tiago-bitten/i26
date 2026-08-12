@@ -3,13 +3,10 @@ namespace i26.EntityFrameworkCore.DomainEvents;
 /// <summary>When a <see cref="DomainEventInterceptor"/> publishes what it collected.</summary>
 public enum DomainEventPublishing
 {
-    /// <summary>
-    /// Inside <c>SaveChangesAsync</c>, once it has succeeded and no transaction is open on the
-    /// context.
-    /// </summary>
+    /// <summary>Once the save has succeeded and no transaction is open on the context.</summary>
     /// <remarks>
-    /// With a transaction open the events stay queued: they describe rows that a rollback would
-    /// still take back, and whoever began the transaction publishes them after committing.
+    /// With a transaction open the events stay queued, for whoever began it to publish after
+    /// committing.
     /// </remarks>
     AfterSaveChanges,
 
