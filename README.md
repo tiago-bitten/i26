@@ -38,6 +38,7 @@ app.MapPost("courses/{id}/publish", Handle)
 - [Typed identifiers](#typed-identifiers)
 - [Result pattern](#result-pattern)
 - [Commands and queries](#commands-and-queries)
+- [Cursor pagination](#cursor-pagination)
 - [ASP.NET Core](#aspnet-core)
 - [Putting it together](#putting-it-together)
 - [Error types](#error-types)
@@ -52,7 +53,8 @@ app.MapPost("courses/{id}/publish", Handle)
 | --- | --- | --- |
 | `i26.Core` | Typed ids, UUIDv7, Crockford base32, the JSON converter, `Result`/`Error` | nothing outside the BCL |
 | `i26.Cqrs` | Command and query contracts, and the handler registration | `Microsoft.Extensions.DependencyInjection.Abstractions` |
-| `i26.EntityFrameworkCore` | Value converter, comparer and model conventions for typed ids | `Microsoft.EntityFrameworkCore.Relational` |
+| `i26.EntityFrameworkCore` | Typed id conventions, and cursor paging over `IQueryable` | `Microsoft.EntityFrameworkCore.Relational` |
+| `i26.Dapper` | Cursor paging over a hand-written query | `Dapper` |
 | `i26.AspNetCore` | Problem responses, endpoint discovery, global exception handler | ASP.NET Core shared framework |
 
 `i26.Core` has **no external dependencies** by design — it is meant to sit in a domain project
@@ -73,6 +75,7 @@ Once published:
 dotnet add package i26.Core
 dotnet add package i26.Cqrs
 dotnet add package i26.EntityFrameworkCore
+dotnet add package i26.Dapper
 dotnet add package i26.AspNetCore
 ```
 
@@ -459,6 +462,107 @@ services.Decorate(typeof(ICommandHandler<>), typeof(LoggingDecorator.CommandBase
 
 ---
 
+## Cursor pagination
+
+A page remembers **where it stopped**, not how far it got. The next page is an index seek —
+`WHERE (CreatedAt, Id) < (…)` — instead of an `OFFSET` that walks every row it skips and shifts
+under you the moment someone inserts a row.
+
+A row joins in by exposing the two columns the order is built on:
+
+```csharp
+using i26.Core.Pagination;
+
+public sealed record CourseRow : ICursorPageable
+{
+    public required Guid Id { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+    public required string Title { get; init; }
+}
+```
+
+The timestamp is what the page is ordered by; the id breaks ties between rows created in the same
+instant. Without the tie-breaker a page can repeat a row or skip one, which is the bug this design
+exists to avoid.
+
+### Entity Framework Core
+
+```csharp
+using i26.EntityFrameworkCore.Pagination;
+
+var page = await db.Courses
+    .Where(course => course.TenantId == tenantId)
+    .Select(course => new CourseRow
+    {
+        Id = course.Id,
+        CreatedAt = course.CreatedAt,
+        Title = course.Title,
+    })
+    .ToPagedResponseAsync(request, cancellationToken: ct);
+
+return page.Value.Map(row => new CourseResponse(row.Id, row.Title));
+```
+
+The ordering is applied for you, so the query arrives filtered and nothing else. The result is a
+`Result<PagedResponse<T>>`: a cursor that did not come from this API is a validation failure, which
+reaches the caller as a 400 rather than a 500.
+
+> Project with an **object initializer**, not a constructor. Entity Framework binds
+> `new CourseRow { CreatedAt = … }` back to the column it came from and can order by it; it cannot
+> do the same for `new CourseRow(…)`. A response shape that takes a constructor is built afterwards,
+> with `Map`.
+
+### Dapper
+
+Same cursor, same response, for the query that outgrew the ORM:
+
+```csharp
+using i26.Dapper.Pagination;
+
+var page = await connection.ToPagedResponseAsync<CourseRow>(
+    """
+    SELECT c."Id", c."Title", c."CreatedAt"
+    FROM courses c
+    JOIN enrollments e ON e."CourseId" = c."Id"
+    WHERE c."TenantId" = @TenantId
+    """,
+    request,
+    new { TenantId = tenantId },
+    cancellationToken: ct);
+```
+
+Your query is wrapped as a derived table and the keyset predicate, the ordering and the limit go
+around it, so it only has to select the two ordering columns and filter. The column names are
+arguments — `createdAtColumn`, `idColumn` — because they are written into the statement as
+identifiers, which no parameter can stand in for; everything else travels as a parameter.
+
+The paging clause is `LIMIT`, which Postgres, SQLite and MySQL take. On SQL Server, write the outer
+query yourself and build the page with `CursorPage.From` — the cursor and the response are the same
+either way.
+
+### What it costs
+
+| | |
+| --- | --- |
+| Rows read | `Limit + 1` — the extra row is what answers `HasNext` exactly, and it is dropped before the page is returned |
+| Queries | one, unless you ask for the total |
+| `Total` | **off by default.** It is a second query counting the whole matching set, which is the very cost cursor paging exists to avoid. Turn it on for the screens that show a count |
+| Limit | clamped into `[1, maxLimit]`, 100 by default, so one caller cannot ask the database for everything |
+| Cursor | base64url, so it survives a query string without escaping |
+
+Give the database an index on `(CreatedAt DESC, Id DESC)`, with whatever the query filters by in
+front of it, and the seek stays a seek.
+
+### Ordering by something else
+
+For a list sorted by name rather than by creation, the same idea holds with a different key.
+`Cursor.EncodeKeyed` and `Cursor.TryDecodeKeyed` carry an arbitrary sort key alongside the id — the
+id is written first at its fixed width of 36 characters, because there is no separator a sort key is
+guaranteed not to contain. The query is yours to write; `CursorPage.From` builds the page from the
+rows you read.
+
+---
+
 ## ASP.NET Core
 
 ### Problem responses
@@ -673,9 +777,11 @@ dotnet build
 dotnet test
 ```
 
-261 tests run against all three target frameworks. The Entity Framework tests execute against an
-in-memory SQLite database, including the DDL with the `"C"` collation; the ASP.NET Core tests build
-a real host and read back the routes and the JSON that reaches the wire. The snippets in this file
+330 tests run against all three target frameworks. The Entity Framework tests execute against an
+in-memory SQLite database, including the DDL with the `"C"` collation, and the paging tests walk
+every page of a seeded table on both the Entity Framework and the Dapper side, checking that no row
+is repeated or skipped; the ASP.NET Core tests build a real host and read back the routes and the
+JSON that reaches the wire. The snippets in this file
 are not decorative — the folds above are compiled and executed by `DocumentedUsageTests`.
 
 ## License

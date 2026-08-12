@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <RootNamespace>i26.Dapper</RootNamespace>
+        <AssemblyName>i26.Dapper</AssemblyName>
+        <PackageId>i26.Dapper</PackageId>
+        <Description>
+            Cursor pagination for Dapper: wraps a query in a keyset page without an OFFSET, using
+            the same cursor and the same response shape as the Entity Framework Core side.
+        </Description>
+        <PackageTags>dapper;pagination;cursor;keyset;sql</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\i26.Core\i26.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Dapper" Version="2.1.66" />
+    </ItemGroup>
+
+</Project>
