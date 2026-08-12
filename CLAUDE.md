@@ -87,10 +87,14 @@ The pass that established this took the source from 41% documentation to 25%.
 
 ## Conventions
 
-- **A package README frames, the repository README explains.** No paragraph belongs in both — the
-  one in `src/*` says what that package solves and what it drags in, and links to the section here
-  that documents it. Those links are **absolute**: nuget.org renders the file outside the
-  repository, where a relative link is a 404 nobody can fix after publishing.
+- **The documentation lives in `src/*/README.md`, one per package. The repository README is the
+  map.** No paragraph belongs in both: the package README is the whole subject, and the root says
+  what exists, what it depends on and how it is registered. A subject split across packages — a
+  domain event is raised in Core, dispatched in Cqrs, collected in EntityFrameworkCore, backgrounded
+  in Hosting — says in each half where the other one is.
+- **Links inside a package README are absolute.** nuget.org renders the file outside the repository,
+  where a relative link is a 404 nobody can fix after publishing. There is a check for this in the
+  history of this file; run it again after moving sections around.
 - **Error codes** are `dot.camelCase` (`course.notFound`, `classroom.teachingLevel.required`), declared
   as fields on a static `{Entity}Errors` class, never inline at the call site. An error whose message
   needs a value is a method: `TitleTooLong(int max) => Error.Validation("course.title.tooLong", max)`.
