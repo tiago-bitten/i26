@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Dapper;
 using i26.Core.Ids;
@@ -27,6 +28,8 @@ public static class TypedIdDapperExtensions
     /// thing from <c>ApplyTypedIdConventions</c>, and both end up reading the same prefixed string.
     /// </para>
     /// </remarks>
+    [RequiresUnreferencedCode("Scans the given assemblies for typed ids, which trimming may have removed.")]
+    [RequiresDynamicCode("Builds a handler for each id type at runtime.")]
     public static void AddTypedIdHandlers(params Assembly[] assemblies)
     {
         ArgumentNullException.ThrowIfNull(assemblies);

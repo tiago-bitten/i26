@@ -32,7 +32,12 @@ public sealed class TypedIdTypeHandler<TId> : SqlMapper.TypeHandler<TId>
         string text => TypedId.Parse<TId>(text),
         Guid guid => TId.FromGuid(guid),
         TId id => id,
-        null => throw new InvalidCastException($"A null column cannot be read as {typeof(TId).Name}."),
+
+        // DBNull, not null: a null column reaches a type handler as DBNull.Value, and the two look
+        // nothing alike to a pattern.
+        null or DBNull => throw new InvalidCastException(
+            $"A null column cannot be read as {typeof(TId).Name}, which is a struct. Read it into a " +
+            $"{typeof(TId).Name}? instead."),
         _ => throw new InvalidCastException(
             $"{typeof(TId).Name} is stored as text, and the column returned {value.GetType().Name}."),
     };

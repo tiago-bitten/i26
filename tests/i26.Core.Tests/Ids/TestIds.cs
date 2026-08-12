@@ -17,6 +17,8 @@ public readonly record struct TestUserId(Guid Value) : ITypedId<TestUserId>
 
     public static bool TryParse(string? s, IFormatProvider? _, out TestUserId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(TestUserId other) => TypedId.Compare(this, other);
 }
 
 /// <summary>Sample id in the canonical shape, with the <c>ord</c> prefix.</summary>
@@ -34,6 +36,8 @@ public readonly record struct TestOrderId(Guid Value) : ITypedId<TestOrderId>
 
     public static bool TryParse(string? s, IFormatProvider? _, out TestOrderId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(TestOrderId other) => TypedId.Compare(this, other);
 }
 
 /// <summary>
@@ -56,4 +60,6 @@ public readonly record struct TestExternalAuthId(Guid Value) : ITypedId<TestExte
 
     public static bool TryParse(string? s, IFormatProvider? _, out TestExternalAuthId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(TestExternalAuthId other) => TypedId.Compare(this, other);
 }

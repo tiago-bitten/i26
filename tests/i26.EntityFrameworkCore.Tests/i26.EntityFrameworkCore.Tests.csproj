@@ -36,6 +36,11 @@
     <ItemGroup>
         <ProjectReference Include="..\..\src\i26.Core\i26.Core.csproj" />
         <ProjectReference Include="..\..\src\i26.EntityFrameworkCore\i26.EntityFrameworkCore.csproj" />
+
+        <!-- Analyzers do not flow through a project reference the way they do through a package. -->
+        <ProjectReference Include="..\..\src\i26.Core.Generators\i26.Core.Generators.csproj"
+                          OutputItemType="Analyzer"
+                          ReferenceOutputAssembly="false" />
     </ItemGroup>
 
     <ItemGroup>

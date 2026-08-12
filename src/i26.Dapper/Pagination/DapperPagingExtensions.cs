@@ -23,6 +23,46 @@ public static class DapperPagingExtensions
     private const string CursorIdParameter = "__cursorId";
 
     /// <summary>Reads one page of a query, newest first.</summary>
+    /// <typeparam name="T">The row type.</typeparam>
+    /// <param name="connection">The open connection.</param>
+    /// <param name="sql">The filtered, unordered query.</param>
+    /// <param name="request">What the caller asked for.</param>
+    /// <param name="parameters">The query's own parameters.</param>
+    /// <param name="createdAtColumn">Column the page is ordered by.</param>
+    /// <param name="idColumn">Tie-breaking column.</param>
+    /// <param name="maxLimit">Ceiling on the page size, however many rows were asked for.</param>
+    /// <param name="transaction">The transaction to run in, when there is one.</param>
+    /// <param name="cancellationToken">Cancels the two queries this runs.</param>
+    /// <returns>
+    /// The page, or <see cref="PaginationErrors.InvalidCursor"/> when the cursor cannot be read.
+    /// </returns>
+    /// <exception cref="ArgumentException">A column name holds something other than an identifier.</exception>
+    public static Task<Result<PagedResponse<T>>> ToPagedResponseAsync<T>(
+        this IDbConnection connection,
+        string sql,
+        CursorPageRequest request,
+        object? parameters = null,
+        string createdAtColumn = DefaultCreatedAtColumn,
+        string idColumn = DefaultIdColumn,
+        int maxLimit = CursorPageRequest.DefaultMaxLimit,
+        IDbTransaction? transaction = null,
+        CancellationToken cancellationToken = default)
+        where T : ICursorPageable<Guid>
+        => connection.ToPagedResponseAsync<T, Guid>(
+            sql, request, parameters, createdAtColumn, idColumn, maxLimit, transaction, cancellationToken);
+
+    /// <summary>Reads one page of a query, newest first.</summary>
+    /// <typeparam name="T">The row type.</typeparam>
+    /// <typeparam name="TId">The tie-breaker's type.</typeparam>
+    /// <param name="connection">The open connection.</param>
+    /// <param name="sql">The filtered, unordered query.</param>
+    /// <param name="request">What the caller asked for.</param>
+    /// <param name="parameters">The query's own parameters.</param>
+    /// <param name="createdAtColumn">Column the page is ordered by.</param>
+    /// <param name="idColumn">Tie-breaking column.</param>
+    /// <param name="maxLimit">Ceiling on the page size, however many rows were asked for.</param>
+    /// <param name="transaction">The transaction to run in, when there is one.</param>
+    /// <param name="cancellationToken">Cancels the two queries this runs.</param>
     /// <returns>
     /// The page, or <see cref="PaginationErrors.InvalidCursor"/> when the cursor cannot be read.
     /// </returns>
@@ -33,9 +73,10 @@ public static class DapperPagingExtensions
     /// the statement as identifiers, since no parameter can stand in for one — they come from your
     /// code, never from a request. The paging clause is <c>LIMIT</c>, which Postgres, SQLite and
     /// MySQL take; on SQL Server, write the outer query yourself and build the page with
-    /// <see cref="CursorPage.From{T}"/>.
+    /// <see cref="CursorPage.From{T, TId}"/>. A typed id needs its Dapper handler registered, which
+    /// is what turns the cursor's id into the string the column holds.
     /// </remarks>
-    public static async Task<Result<PagedResponse<T>>> ToPagedResponseAsync<T>(
+    public static async Task<Result<PagedResponse<T>>> ToPagedResponseAsync<T, TId>(
         this IDbConnection connection,
         string sql,
         CursorPageRequest request,
@@ -45,7 +86,8 @@ public static class DapperPagingExtensions
         int maxLimit = CursorPageRequest.DefaultMaxLimit,
         IDbTransaction? transaction = null,
         CancellationToken cancellationToken = default)
-        where T : ICursorPageable
+        where T : ICursorPageable<TId>
+        where TId : IComparable<TId>, IParsable<TId>
     {
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentException.ThrowIfNullOrWhiteSpace(sql);
@@ -57,7 +99,7 @@ public static class DapperPagingExtensions
         var page = request.Normalize(maxLimit);
 
         DateTimeOffset cursorCreatedAt = default;
-        Guid cursorId = default;
+        TId cursorId = default!;
         var paging = !string.IsNullOrEmpty(page.Cursor);
 
         if (paging && !Cursor.TryDecode(page.Cursor, out cursorCreatedAt, out cursorId))
@@ -75,7 +117,7 @@ public static class DapperPagingExtensions
                 .ConfigureAwait(false)
             : null;
 
-        object? arguments = parameters;
+        var arguments = parameters;
         var where = string.Empty;
 
         if (paging)
@@ -107,6 +149,6 @@ public static class DapperPagingExtensions
                 cancellationToken: cancellationToken))
             .ConfigureAwait(false);
 
-        return CursorPage.From([.. items], page.Limit, total);
+        return CursorPage.From<T, TId>([.. items], page.Limit, total);
     }
 }

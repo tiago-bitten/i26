@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -13,6 +14,12 @@ namespace i26.Core.Ids.Json;
 /// </remarks>
 public sealed class TypedIdJsonConverterFactory : JsonConverterFactory
 {
+    /// <summary>Creates the factory.</summary>
+    [RequiresDynamicCode("Builds a converter for each id type at runtime.")]
+    public TypedIdJsonConverterFactory()
+    {
+    }
+
     /// <summary>Tells whether the type is a typed id.</summary>
     public override bool CanConvert(Type typeToConvert) => TypedId.IsTypedId(typeToConvert);
 

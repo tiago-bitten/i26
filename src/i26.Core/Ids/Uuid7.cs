@@ -18,6 +18,24 @@ public static class Uuid7
     /// <summary>Number of bytes in a UUID.</summary>
     private const int ByteCount = 16;
 
+    /// <summary>Bytes the timestamp occupies, at the front.</summary>
+    private const int TimestampByteCount = 6;
+
+    /// <summary>Index of the byte whose high nibble holds the version.</summary>
+    private const int VersionByte = 6;
+
+    /// <summary>The version nibble of a UUIDv7, in place.</summary>
+    private const byte Version7 = 0x70;
+
+    /// <summary>Mask of the version nibble.</summary>
+    private const byte VersionMask = 0xF0;
+
+    /// <summary>
+    /// Largest instant a <see cref="DateTimeOffset"/> holds. The 48 timestamp bits reach the year
+    /// 10889, so a value that is well-formed can still be out of range here.
+    /// </summary>
+    private static readonly long MaxUnixMilliseconds = DateTimeOffset.MaxValue.ToUnixTimeMilliseconds();
+
     /// <summary>Creates a new UUID version 7 from the current UTC clock.</summary>
     /// <returns>A version 7, RFC 4122 variant <see cref="Guid"/>.</returns>
     public static Guid New()
@@ -26,7 +44,10 @@ public static class Uuid7
         return Guid.CreateVersion7();
 #else
         Span<byte> bytes = stackalloc byte[ByteCount];
-        RandomNumberGenerator.Fill(bytes);
+
+        // Only the bytes the timestamp does not claim: the first six are written over below, and
+        // asking the CSPRNG for them would be work thrown away.
+        RandomNumberGenerator.Fill(bytes[TimestampByteCount..]);
 
         var unixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -39,7 +60,7 @@ public static class Uuid7
         bytes[5] = (byte)unixMilliseconds;
 
         // Byte 6, high nibble: version 7.
-        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x70);
+        bytes[VersionByte] = (byte)((bytes[VersionByte] & 0x0F) | Version7);
 
         // Byte 8, two high bits: RFC 4122 variant (10xx).
         bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
@@ -51,14 +72,47 @@ public static class Uuid7
     /// <summary>Reads the creation instant embedded in a UUID version 7.</summary>
     /// <param name="value">The UUID to read the timestamp from.</param>
     /// <returns>The instant, in UTC, with millisecond precision.</returns>
+    /// <exception cref="ArgumentException">
+    /// The value is not version 7, or its 48 timestamp bits land outside the range a
+    /// <see cref="DateTimeOffset"/> can hold.
+    /// </exception>
     /// <remarks>
-    /// The version is not validated: called with a GUID that is not version 7, this reads the 48
-    /// most significant bits as a timestamp, which carries no meaning whatsoever.
+    /// Use <see cref="TryGetTimestamp"/> for a value that came from outside: an id is parsed from
+    /// its 128 bits alone, so any of them can arrive here.
     /// </remarks>
     public static DateTimeOffset GetTimestamp(Guid value)
     {
+        if (!TryGetTimestamp(value, out var timestamp))
+        {
+            throw new ArgumentException(
+                $"'{value}' is not a version 7 UUID with a readable timestamp, so its leading 48 bits " +
+                "do not say when it was created.",
+                nameof(value));
+        }
+
+        return timestamp;
+    }
+
+    /// <summary>Tries to read the creation instant embedded in a UUID version 7.</summary>
+    /// <param name="value">The UUID to read the timestamp from.</param>
+    /// <param name="timestamp">The instant, in UTC, with millisecond precision.</param>
+    /// <returns>
+    /// <see langword="false"/> when the value is not version 7, or when its timestamp is out of the
+    /// range a <see cref="DateTimeOffset"/> holds.
+    /// </returns>
+    public static bool TryGetTimestamp(Guid value, out DateTimeOffset timestamp)
+    {
+        timestamp = default;
+
         Span<byte> bytes = stackalloc byte[ByteCount];
         value.TryWriteBytes(bytes, bigEndian: true, out _);
+
+        // The version nibble is the only thing saying the leading 48 bits are a timestamp at all.
+        // Without this check a UUIDv4 reads as an instant somewhere in the next eight millennia.
+        if ((bytes[VersionByte] & VersionMask) != Version7)
+        {
+            return false;
+        }
 
         var unixMilliseconds =
             ((long)bytes[0] << 40) |
@@ -68,6 +122,12 @@ public static class Uuid7
             ((long)bytes[4] << 8) |
             bytes[5];
 
-        return DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds);
+        if (unixMilliseconds > MaxUnixMilliseconds)
+        {
+            return false;
+        }
+
+        timestamp = DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds);
+        return true;
     }
 }

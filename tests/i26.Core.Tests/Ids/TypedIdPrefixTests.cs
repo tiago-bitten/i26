@@ -135,6 +135,8 @@ public class TypedIdPrefixTests
 
         public static bool TryParse(string? s, IFormatProvider? _, out LongPrefixId result)
             => TypedId.TryParse(s, out result);
+
+        public int CompareTo(LongPrefixId other) => TypedId.Compare(this, other);
     }
 
     private readonly record struct TooLongExtendedPrefixId(Guid Value) : ITypedId<TooLongExtendedPrefixId>
@@ -150,6 +152,8 @@ public class TypedIdPrefixTests
 
         public static bool TryParse(string? s, IFormatProvider? _, out TooLongExtendedPrefixId result)
             => TypedId.TryParse(s, out result);
+
+        public int CompareTo(TooLongExtendedPrefixId other) => TypedId.Compare(this, other);
     }
 
     private readonly record struct UppercasePrefixId(Guid Value) : ITypedId<UppercasePrefixId>
@@ -163,5 +167,7 @@ public class TypedIdPrefixTests
 
         public static bool TryParse(string? s, IFormatProvider? _, out UppercasePrefixId result)
             => TypedId.TryParse(s, out result);
+
+        public int CompareTo(UppercasePrefixId other) => TypedId.Compare(this, other);
     }
 }

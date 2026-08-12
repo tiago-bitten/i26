@@ -25,7 +25,7 @@ library — not because it is a separate thing.
 
 ```bash
 dotnet build i26.sln            # all 5 projects x 3 target frameworks
-dotnet test i26.sln             # 330 tests
+dotnet test i26.sln             # 437 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
@@ -80,7 +80,17 @@ The pass that established this took the source from 41% documentation to 25%.
   `UsesExtendedPrefix => true` next to the prefix, and tops out at ten.
 - **New ids are declared with `[TypedId("crs")]`** on a partial struct; the generator writes the
   members. The hand-written shape stays valid and the two are interchangeable — every test in
-  `GeneratedIdTests` would pass against either.
+  `GeneratedIdTests` would pass against either. Interchangeable includes a plain `struct`: the
+  compiler hands a `record struct` equality and hands a struct nothing, so the generator writes
+  `Equals`, `GetHashCode`, `==` and `!=` for the second one.
+- **An id that another service mints is `[TypedId("usr", Minted = false)]`.** No `New()` is written,
+  and `TypedId.New<TId>()` throws — the convention is enforced rather than implied, because the
+  generic form used to walk around a hand-written id that simply left `New()` off.
+- **Anything reading the 128 bits of an id is a `Try`.** `Parse` checks the prefix and the alphabet
+  and nothing else, so an id off a route can carry any bits at all: `Uuid7.GetTimestamp` checks the
+  version nibble *and* the range, because 48 bits reach the year 10889 and a `DateTimeOffset` stops
+  at 9999. The same rule made `Cursor.TryDecode` range-check its timestamp — a cursor is a query
+  string, and `long.TryParse` succeeds long before the value names an instant.
 - **The prefix rules exist twice**: in `TypedIdPrefix` and in the generator, which targets
   netstandard2.0 and cannot reference the library it generates for. `PrefixRuleTests` fails when
   the two drift.
@@ -112,8 +122,20 @@ lambda. `DocumentedUsageTests` compiles the shapes the README documents.
 
 **EF Core cannot translate a member access through an interface cast.** In a method constrained to
 an interface, `item => item.CreatedAt` compiles to
-`((ICursorPageable)new Row(…)).CreatedAt`, which has no translation over a projection. Build the
-expression on the concrete type — see `CursorPredicate<T>`.
+`((ICursorPageable<Guid>)new Row(…)).CreatedAt`, which has no translation over a projection. Build
+the expression on the concrete type — see `CursorPredicate<T, TId>`.
+
+**`IComparable<T>` is not the `<` operator, and a keyset predicate needs the operator.**
+`Expression.LessThan` looks for `op_LessThan` and throws when there is none — `CompareTo` has no SQL
+either way. That is why `ITypedId<TSelf>` asks for `IComparable<TSelf>` (so `Order()`, a
+`SortedSet` and a generic constraint all work) while the generator additionally writes `<`, `<=`,
+`>` and `>=`. `Guid` has the operators but does *not* implement `IComparisonOperators`, so that
+interface cannot be the constraint.
+
+**Paging is generic over the id, and C# will not infer that type parameter.** `ToPagedResponseAsync`
+infers `T` from the receiver and nothing else, so a typed id is spelled out:
+`ToPagedResponseAsync<CourseRow, CourseId>(request)`. The arity-1 overload constrained to
+`ICursorPageable<Guid>` is what keeps every `Guid` caller unchanged.
 
 **EF Core projections need an object initializer, not a constructor.** `new Row { CreatedAt = … }`
 binds back to its column and can be ordered by; `new Row(…)` cannot. Constructor shapes are built

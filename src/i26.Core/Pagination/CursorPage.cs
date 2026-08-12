@@ -20,12 +20,29 @@ public static class CursorPage
     /// <returns>The page.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="items"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="limit"/> is not positive.</exception>
+    public static PagedResponse<T> From<T>(List<T> items, int limit, int? total = null)
+        where T : ICursorPageable<Guid>
+        => From<T, Guid>(items, limit, total);
+
+    /// <summary>Trims the extra row and builds the page around what is left.</summary>
+    /// <typeparam name="T">The row type.</typeparam>
+    /// <typeparam name="TId">The tie-breaker's type.</typeparam>
+    /// <param name="items">
+    /// The rows read, up to <paramref name="limit"/> + 1 of them. Trimmed in place when the extra
+    /// row came back.
+    /// </param>
+    /// <param name="limit">How many rows the page holds.</param>
+    /// <param name="total">The total matching rows, when it was asked for.</param>
+    /// <returns>The page.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="items"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="limit"/> is not positive.</exception>
     /// <remarks>
     /// A cursor comes back only when there is a next page. Handing one out on the last page invites
     /// a client to ask for a page that is always empty.
     /// </remarks>
-    public static PagedResponse<T> From<T>(List<T> items, int limit, int? total = null)
-        where T : ICursorPageable
+    public static PagedResponse<T> From<T, TId>(List<T> items, int limit, int? total = null)
+        where T : ICursorPageable<TId>
+        where TId : IComparable<TId>, IParsable<TId>
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);

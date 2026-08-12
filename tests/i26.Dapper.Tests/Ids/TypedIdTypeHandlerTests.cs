@@ -167,6 +167,8 @@ public readonly record struct CourseId(Guid Value) : ITypedId<CourseId>
 
     public static bool TryParse(string? s, IFormatProvider? _, out CourseId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(CourseId other) => TypedId.Compare(this, other);
 }
 
 public readonly record struct TeacherId(Guid Value) : ITypedId<TeacherId>
@@ -183,4 +185,6 @@ public readonly record struct TeacherId(Guid Value) : ITypedId<TeacherId>
 
     public static bool TryParse(string? s, IFormatProvider? _, out TeacherId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(TeacherId other) => TypedId.Compare(this, other);
 }

@@ -100,6 +100,8 @@ public class TypedIdPrefixSweepTests
 
         public static bool TryParse(string? s, IFormatProvider? _, out ShadowUserId result)
             => TypedId.TryParse(s, out result);
+
+        public int CompareTo(ShadowUserId other) => TypedId.Compare(this, other);
     }
 
     private readonly record struct FourLetterId(Guid Value) : ITypedId<FourLetterId>
@@ -112,5 +114,7 @@ public class TypedIdPrefixSweepTests
 
         public static bool TryParse(string? s, IFormatProvider? _, out FourLetterId result)
             => TypedId.TryParse(s, out result);
+
+        public int CompareTo(FourLetterId other) => TypedId.Compare(this, other);
     }
 }

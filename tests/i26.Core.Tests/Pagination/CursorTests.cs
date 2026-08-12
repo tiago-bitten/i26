@@ -1,4 +1,6 @@
+using i26.Core.Ids;
 using i26.Core.Pagination;
+using i26.Core.Tests.Ids;
 
 namespace i26.Core.Tests.Pagination;
 
@@ -14,7 +16,7 @@ public class CursorTests
     {
         var cursor = Cursor.Encode(CreatedAt, Id);
 
-        Assert.True(Cursor.TryDecode(cursor, out var createdAt, out var id));
+        Assert.True(Cursor.TryDecode<Guid>(cursor, out var createdAt, out var id));
         Assert.Equal(CreatedAt, createdAt);
         Assert.Equal(Id, id);
     }
@@ -39,7 +41,7 @@ public class CursorTests
         var payload = $"{CreatedAt.ToUnixTimeMilliseconds()}_{Id:D}";
         var standard = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload));
 
-        Assert.True(Cursor.TryDecode(standard, out var createdAt, out var id));
+        Assert.True(Cursor.TryDecode<Guid>(standard, out var createdAt, out var id));
         Assert.Equal(CreatedAt, createdAt);
         Assert.Equal(Id, id);
     }
@@ -49,7 +51,7 @@ public class CursorTests
     {
         var precise = new DateTimeOffset(2026, 8, 11, 20, 45, 12, 345, TimeSpan.Zero);
 
-        Assert.True(Cursor.TryDecode(Cursor.Encode(precise, Id), out var createdAt, out _));
+        Assert.True(Cursor.TryDecode<Guid>(Cursor.Encode(precise, Id), out var createdAt, out _));
         Assert.Equal(precise, createdAt);
     }
 
@@ -66,9 +68,56 @@ public class CursorTests
     [InlineData("MTY4ODA5NjA1ODUxOA")]
     public void Anything_else_is_refused_instead_of_guessed(string? cursor)
     {
-        Assert.False(Cursor.TryDecode(cursor, out var createdAt, out var id));
+        Assert.False(Cursor.TryDecode<Guid>(cursor, out var createdAt, out var id));
         Assert.Equal(default, createdAt);
         Assert.Equal(Guid.Empty, id);
+    }
+
+    [Theory]
+    // A long parses long before it names an instant, and a cursor comes from a query string.
+    [InlineData(long.MaxValue)]
+    [InlineData(long.MinValue)]
+    [InlineData(253_402_300_800_000)]
+    [InlineData(-62_135_596_800_001)]
+    public void A_timestamp_no_instant_could_hold_is_refused_rather_than_thrown_on(long unixMilliseconds)
+    {
+        var payload = $"{unixMilliseconds}_{Id:D}";
+        var cursor = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload));
+
+        Assert.False(Cursor.TryDecode<Guid>(cursor, out var createdAt, out _));
+        Assert.Equal(default, createdAt);
+    }
+
+    [Theory]
+    [InlineData(253_402_300_799_999)]
+    [InlineData(-62_135_596_800_000)]
+    public void The_ends_of_the_range_are_still_read(long unixMilliseconds)
+    {
+        var payload = $"{unixMilliseconds}_{Id:D}";
+        var cursor = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload));
+
+        Assert.True(Cursor.TryDecode<Guid>(cursor, out var createdAt, out _));
+        Assert.Equal(unixMilliseconds, createdAt.ToUnixTimeMilliseconds());
+    }
+
+    [Fact]
+    public void A_typed_id_travels_in_the_cursor_as_itself()
+    {
+        var id = TestUserId.New();
+
+        var cursor = Cursor.Encode(CreatedAt, id);
+
+        Assert.True(Cursor.TryDecode<TestUserId>(cursor, out var createdAt, out var decoded));
+        Assert.Equal(CreatedAt, createdAt);
+        Assert.Equal(id, decoded);
+    }
+
+    [Fact]
+    public void A_cursor_of_one_id_type_does_not_read_as_another()
+    {
+        var cursor = Cursor.Encode(CreatedAt, TestUserId.New());
+
+        Assert.False(Cursor.TryDecode<TestOrderId>(cursor, out _, out _));
     }
 
     [Theory]
@@ -83,18 +132,37 @@ public class CursorTests
     {
         var cursor = Cursor.EncodeKeyed(sortKey, Id);
 
-        Assert.True(Cursor.TryDecodeKeyed(cursor, out var decoded, out var id));
+        Assert.True(Cursor.TryDecodeKeyed<Guid>(cursor, out var decoded, out var id));
         Assert.Equal(sortKey, decoded);
         Assert.Equal(Id, id);
+    }
+
+    [Theory]
+    [InlineData("Ada Lovelace")]
+    [InlineData("")]
+    [InlineData("under_score")]
+    public void A_keyed_cursor_reads_back_a_typed_id_too(string sortKey)
+    {
+        var id = TestUserId.New();
+
+        var cursor = Cursor.EncodeKeyed(sortKey, id);
+
+        Assert.True(Cursor.TryDecodeKeyed<TestUserId>(cursor, out var decoded, out var decodedId));
+        Assert.Equal(sortKey, decoded);
+        Assert.Equal(id, decodedId);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("dG9vc2hvcnQ")]
+    // A length longer than what is left of the payload.
+    [InlineData("OTk5XzAxODkwYTVk")]
+    // A length that is not digits.
+    [InlineData("LTFfMDE4OTBhNWQtYWM5Ni03NzRiLWJjY2UtYjMwMjA5OWE4MDU3")]
     public void A_keyed_cursor_that_cannot_hold_an_id_is_refused(string? cursor)
     {
-        Assert.False(Cursor.TryDecodeKeyed(cursor, out var sortKey, out var id));
+        Assert.False(Cursor.TryDecodeKeyed<Guid>(cursor, out var sortKey, out var id));
         Assert.Empty(sortKey);
         Assert.Equal(Guid.Empty, id);
     }
@@ -102,6 +170,6 @@ public class CursorTests
     [Fact]
     public void The_two_kinds_of_cursor_do_not_read_each_other()
     {
-        Assert.False(Cursor.TryDecode(Cursor.EncodeKeyed("Ada Lovelace", Id), out _, out _));
+        Assert.False(Cursor.TryDecode<Guid>(Cursor.EncodeKeyed("Ada Lovelace", Id), out _, out _));
     }
 }

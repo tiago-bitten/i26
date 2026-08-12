@@ -7,9 +7,10 @@ namespace i26.Core.Ids;
 /// <remarks>
 /// Declare one with <see cref="TypedIdAttribute"/> and the generator writes the members. Deriving
 /// from <see cref="IParsable{TSelf}"/> is what makes minimal API route and query binding work with
-/// no registration.
+/// no registration; deriving from <see cref="IComparable{TSelf}"/> is what lets a plain
+/// <c>Order()</c>, a <c>SortedSet</c> or a keyset predicate use an id without a comparer.
 /// </remarks>
-public interface ITypedId<TSelf> : IParsable<TSelf>
+public interface ITypedId<TSelf> : IParsable<TSelf>, IComparable<TSelf>
     where TSelf : struct, ITypedId<TSelf>
 {
     /// <summary>The type's prefix, without the separator: up to three lowercase letters.</summary>
@@ -18,6 +19,13 @@ public interface ITypedId<TSelf> : IParsable<TSelf>
 
     /// <summary>Allows a prefix of up to ten characters instead of three.</summary>
     static virtual bool UsesExtendedPrefix => false;
+
+    /// <summary>Whether this service is the one that mints ids with this prefix.</summary>
+    /// <remarks>
+    /// <see langword="false"/> makes <see cref="TypedId.New{TId}"/> throw, so an id naming another
+    /// service's entity can only ever be parsed from what that service handed over.
+    /// </remarks>
+    static virtual bool Minted => true;
 
     /// <summary>Creates the id from the UUIDv7 it wraps.</summary>
     static abstract TSelf FromGuid(Guid value);

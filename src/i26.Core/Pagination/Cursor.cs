@@ -10,27 +10,43 @@ namespace i26.Core.Pagination;
 /// </remarks>
 public static class Cursor
 {
-    /// <summary>Separator between the two halves of a timestamp cursor.</summary>
+    /// <summary>Separator between the two halves of a cursor.</summary>
     private const char Separator = '_';
 
-    /// <summary>Width of a <see cref="Guid"/> in <c>D</c> format.</summary>
-    private const int GuidLength = 36;
+    /// <summary>Earliest instant a <see cref="DateTimeOffset"/> holds, in Unix milliseconds.</summary>
+    private static readonly long MinUnixMilliseconds = DateTimeOffset.MinValue.ToUnixTimeMilliseconds();
+
+    /// <summary>Latest instant a <see cref="DateTimeOffset"/> holds, in Unix milliseconds.</summary>
+    private static readonly long MaxUnixMilliseconds = DateTimeOffset.MaxValue.ToUnixTimeMilliseconds();
 
     /// <summary>Encodes the position of the last row of a page ordered by creation instant.</summary>
-    public static string Encode(DateTimeOffset createdAt, Guid id)
+    /// <typeparam name="TId">The tie-breaker's type.</typeparam>
+    /// <param name="createdAt">The instant the page stopped at.</param>
+    /// <param name="id">The id the page stopped at.</param>
+    public static string Encode<TId>(DateTimeOffset createdAt, TId id)
+        where TId : IParsable<TId>
     {
         var payload = string.Create(
             CultureInfo.InvariantCulture,
-            $"{createdAt.ToUnixTimeMilliseconds()}{Separator}{id:D}");
+            $"{createdAt.ToUnixTimeMilliseconds()}{Separator}{Text(id)}");
 
         return ToBase64Url(payload);
     }
 
     /// <summary>Reads back a cursor written by <see cref="Encode"/>. Plain base64 is accepted too.</summary>
-    public static bool TryDecode(string? cursor, out DateTimeOffset createdAt, out Guid id)
+    /// <typeparam name="TId">The tie-breaker's type.</typeparam>
+    /// <param name="cursor">The cursor as the client sent it back.</param>
+    /// <param name="createdAt">The instant the last page stopped at.</param>
+    /// <param name="id">The id the last page stopped at.</param>
+    /// <remarks>
+    /// A cursor arrives from a query string, so every part of it is input: the instant is range
+    /// checked before it becomes a <see cref="DateTimeOffset"/>, and the id has to parse as one.
+    /// </remarks>
+    public static bool TryDecode<TId>(string? cursor, out DateTimeOffset createdAt, out TId id)
+        where TId : IParsable<TId>
     {
         createdAt = default;
-        id = default;
+        id = default!;
 
         if (!TryFromBase64Url(cursor, out var payload))
         {
@@ -53,46 +69,98 @@ public static class Cursor
             return false;
         }
 
-        if (!Guid.TryParseExact(payload.AsSpan(separator + 1), "D", out id))
+        // A long parses long before it names an instant: without this, a hand-written cursor turns
+        // FromUnixTimeMilliseconds into an unhandled exception on a query string.
+        if (unixMilliseconds < MinUnixMilliseconds || unixMilliseconds > MaxUnixMilliseconds)
+        {
+            return false;
+        }
+
+        // The id's own text may hold the separator — a typed id does — so it is everything after the
+        // first one, and the timestamp before it is digits either way.
+        if (!TId.TryParse(payload[(separator + 1)..], CultureInfo.InvariantCulture, out var parsed))
         {
             return false;
         }
 
         createdAt = DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds);
+        id = parsed;
         return true;
     }
 
     /// <summary>Encodes the position of a row ordered by an arbitrary key — a name, a title.</summary>
+    /// <typeparam name="TId">The tie-breaker's type.</typeparam>
+    /// <param name="sortKey">What the page is ordered by.</param>
+    /// <param name="id">The id the page stopped at.</param>
     /// <remarks>
-    /// The id goes first at its fixed width of 36 characters and the key takes the rest, because
-    /// there is no character a sort key is guaranteed not to contain.
+    /// The id is length-prefixed and the key takes the rest, because there is no character a sort
+    /// key is guaranteed not to contain, and no width an id is guaranteed to have.
     /// </remarks>
-    public static string EncodeKeyed(string sortKey, Guid id)
+    public static string EncodeKeyed<TId>(string sortKey, TId id)
+        where TId : IParsable<TId>
     {
         ArgumentNullException.ThrowIfNull(sortKey);
 
-        return ToBase64Url(id.ToString("D", CultureInfo.InvariantCulture) + sortKey);
+        var text = Text(id);
+        var payload = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{text.Length}{Separator}{text}{sortKey}");
+
+        return ToBase64Url(payload);
     }
 
     /// <summary>Reads back a cursor written by <see cref="EncodeKeyed"/>.</summary>
-    public static bool TryDecodeKeyed(string? cursor, out string sortKey, out Guid id)
+    /// <typeparam name="TId">The tie-breaker's type.</typeparam>
+    /// <param name="cursor">The cursor as the client sent it back.</param>
+    /// <param name="sortKey">What the last page stopped at.</param>
+    /// <param name="id">The id the last page stopped at.</param>
+    public static bool TryDecodeKeyed<TId>(string? cursor, out string sortKey, out TId id)
+        where TId : IParsable<TId>
     {
         sortKey = string.Empty;
-        id = default;
+        id = default!;
 
-        if (!TryFromBase64Url(cursor, out var payload) || payload.Length < GuidLength)
+        if (!TryFromBase64Url(cursor, out var payload))
         {
             return false;
         }
 
-        if (!Guid.TryParseExact(payload.AsSpan(0, GuidLength), "D", out id))
+        var separator = payload.IndexOf(Separator, StringComparison.Ordinal);
+
+        if (separator <= 0)
         {
             return false;
         }
 
-        sortKey = payload[GuidLength..];
+        // NumberStyles.None: a length is digits, so a sign or a space is a malformed cursor rather
+        // than something to be lenient about.
+        if (!int.TryParse(
+                payload.AsSpan(0, separator),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var length)
+            || payload.Length < separator + 1 + length)
+        {
+            return false;
+        }
+
+        if (!TId.TryParse(
+                payload.Substring(separator + 1, length),
+                CultureInfo.InvariantCulture,
+                out var parsed))
+        {
+            return false;
+        }
+
+        sortKey = payload[(separator + 1 + length)..];
+        id = parsed;
         return true;
     }
+
+    /// <summary>The id in the textual form its own parser reads back.</summary>
+    private static string Text<TId>(TId id)
+        where TId : IParsable<TId>
+        => id?.ToString() ?? string.Empty;
 
     private static string ToBase64Url(string payload)
     {

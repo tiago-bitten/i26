@@ -17,4 +17,11 @@ public sealed class TypedIdAttribute(string prefix) : Attribute
 
     /// <summary>Allows a prefix of up to ten characters instead of three.</summary>
     public bool UsesExtendedPrefix { get; init; }
+
+    /// <summary>Whether this service is the one that mints ids with this prefix.</summary>
+    /// <remarks>
+    /// <see langword="false"/> leaves <c>New()</c> off the generated id and makes
+    /// <see cref="TypedId.New{TId}"/> throw, for the id that names another service's entity.
+    /// </remarks>
+    public bool Minted { get; init; } = true;
 }

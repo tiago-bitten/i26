@@ -18,6 +18,8 @@ public readonly record struct OrderId(Guid Value) : ITypedId<OrderId>
 
     public static bool TryParse(string? s, IFormatProvider? _, out OrderId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(OrderId other) => TypedId.Compare(this, other);
 }
 
 public readonly record struct UserId(Guid Value) : ITypedId<UserId>
@@ -34,6 +36,8 @@ public readonly record struct UserId(Guid Value) : ITypedId<UserId>
 
     public static bool TryParse(string? s, IFormatProvider? _, out UserId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(UserId other) => TypedId.Compare(this, other);
 }
 
 public sealed class Order

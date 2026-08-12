@@ -101,11 +101,9 @@ public static class CrockfordBase32
             buffer = (buffer << 5) | value;
             bits += 5;
 
-            if (bits >= 8)
-            {
-                bits -= 8;
-                destination[written++] = (byte)(buffer >> bits);
-            }
+            if (bits < 8) continue;
+            bits -= 8;
+            destination[written++] = (byte)(buffer >> bits);
         }
 
         return true;

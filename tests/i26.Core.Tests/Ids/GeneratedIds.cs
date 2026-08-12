@@ -20,3 +20,7 @@ public readonly partial struct GeneratedStructId;
 /// <summary>Not public, and not readonly.</summary>
 [TypedId("gin")]
 internal partial record struct GeneratedInternalId;
+
+/// <summary>Another service's prefix: parsed here, never minted here.</summary>
+[TypedId("gex", Minted = false)]
+public readonly partial record struct GeneratedExternalId;

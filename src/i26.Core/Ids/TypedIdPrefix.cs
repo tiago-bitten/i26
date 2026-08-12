@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 
@@ -56,6 +57,8 @@ public static class TypedIdPrefix
     /// Uniqueness is the part no per-type check can catch, so one test in the project that declares
     /// the ids is worth having: <c>TypedIdPrefix.ValidateAll(typeof(CourseId).Assembly)</c>.
     /// </remarks>
+    [RequiresUnreferencedCode("Enumerates every type in the given assemblies, which trimming may have removed.")]
+    [RequiresDynamicCode("Checks each id through a generic method built at runtime.")]
     public static void ValidateAll(params Assembly[] assemblies)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
@@ -68,6 +71,7 @@ public static class TypedIdPrefix
     /// <exception cref="InvalidOperationException">
     /// A prefix breaks a rule, or two ids declare the same one.
     /// </exception>
+    [RequiresDynamicCode("Checks each id through a generic method built at runtime.")]
     public static void ValidateAll(IEnumerable<Type> idTypes)
     {
         ArgumentNullException.ThrowIfNull(idTypes);
@@ -100,6 +104,7 @@ public static class TypedIdPrefix
         }
     }
 
+    [RequiresDynamicCode("Builds TypedIdPrefix.Validate<TId> for the given id type at runtime.")]
     private static string ValidateOf(Type idType)
     {
         try

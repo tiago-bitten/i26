@@ -107,9 +107,14 @@ public readonly partial record struct CourseId;
 ```
 
 That is the whole declaration. A generator ships inside `i26.Core` and writes the rest — the
-interface, `Value`, `New`, `ToString`, `Parse` and `TryParse` — so the eleven lines that never vary
-between one id and the next are not yours to keep in sync. A prefix past three characters says so
-on the attribute: `[TypedId("workspace", UsesExtendedPrefix = true)]`.
+interface, `Value`, `New`, `ToString`, `Parse`, `TryParse`, `CompareTo` and the comparison
+operators — so the lines that never vary between one id and the next are not yours to keep in sync.
+A prefix past three characters says so on the attribute:
+`[TypedId("workspace", UsesExtendedPrefix = true)]`.
+
+A `record struct` is handed equality by the compiler. Declare a plain `struct` instead and the
+generator writes `Equals`, `GetHashCode`, `==` and `!=` as well, so the two shapes behave the same
+and neither one falls back to `ValueType.Equals`.
 
 Because the generator sees every id in the compilation, the rules become compile errors instead of
 runtime ones:
@@ -142,8 +147,15 @@ public readonly record struct CourseId(Guid Value) : ITypedId<CourseId>
 
     public static bool TryParse(string? s, IFormatProvider? _, out CourseId result)
         => TypedId.TryParse(s, out result);
+
+    public int CompareTo(CourseId other) => TypedId.Compare(this, other);
 }
 ```
+
+`CompareTo` is on the interface rather than left to each id, because everything that orders ids —
+`Order()`, a `SortedSet`, the keyset predicate behind cursor pagination — reaches for
+`IComparable<T>` and finds nothing otherwise. The comparison operators are not on the interface, so
+a hand-written id that wants `left < right` writes them; the generator always does.
 
 </details>
 
@@ -192,8 +204,8 @@ var id = CourseId.New();
 
 id.ToString();                     // "crs_01h455vb4pex5vsknk084sn02q"
 CourseId.Parse(id.ToString());     // back to the id
-TypedId.GetTimestamp(id);          // when it was created, to the millisecond
-TypedId.Compare(first, second);    // chronological order
+TypedId.Compare(first, second);    // order, oldest first
+TypedId.Empty<CourseId>();         // the zero id, which is also default(CourseId)
 
 CourseId.TryParse("std_01h455vb4pex5vsknk084sn02q", null, out _);   // false: wrong prefix
 ```
@@ -201,17 +213,37 @@ CourseId.TryParse("std_01h455vb4pex5vsknk084sn02q", null, out _);   // false: wr
 Parsing is strict: exact length, exact prefix, lowercase only, and no `i`, `l`, `o` or `u` — every
 id has exactly one textual form.
 
-### Ordering
-
-The encoding preserves order, so sorting the strings sorts by creation time:
+**Reading the instant an id was minted at is a `Try`.** Parsing checks the prefix and the alphabet,
+never the 128 bits behind them, so an id that arrived from a route can be well formed and still
+carry bits that name no instant at all:
 
 ```csharp
-ids.Select(id => id.ToString()).Order(StringComparer.Ordinal);   // chronological
+TypedId.TryGetTimestamp(id, out var createdAt);   // false for anything but a UUIDv7 in range
+TypedId.GetTimestamp(id);                         // throws ArgumentException instead
 ```
 
-Use `TypedId.Compare` rather than `Guid.CompareTo` when you need the guarantee in code: it compares
-the bytes big-endian, which is the same order the database column uses. Note that
-`Guid.ToByteArray()` is little-endian for the first three fields and *does not* preserve it.
+Use the `Try` form for an id you were handed and the plain one for an id you minted. `GetTimestamp`
+checks the version nibble, so a UUIDv4 is refused rather than read as an instant eight millennia
+from now.
+
+### Ordering
+
+The encoding preserves order, so ids sort by creation time — as ids, as strings, and in the
+database:
+
+```csharp
+ids.Order();                                                     // IComparable<CourseId>
+ids.Select(id => id.ToString()).Order(StringComparer.Ordinal);   // the same order
+first < second;                                                  // and the same again
+```
+
+All three compare the bytes big-endian, which is the order a `text COLLATE "C"` column is in.
+Reaching for `Guid.CompareTo` instead does **not** give it: `Guid.ToByteArray()` is little-endian
+for the first three fields.
+
+One caveat the encoding cannot fix: two ids minted in the same millisecond are ordered by their
+random bits, not by which came first. The order is stable and exact — which is all a page boundary
+needs — but within a millisecond it is not chronological.
 
 ### JSON
 
@@ -253,6 +285,16 @@ SELECT * FROM "Courses" WHERE "Id" = 'crs_01h455vb4pex5vsknk084sn02q';
 Reading uses `Parse`, so a corrupted row — or one carrying another entity's prefix — fails loudly
 instead of quietly becoming the wrong id.
 
+`text` and `"C"` are Postgres' vocabulary, which is what the default assumes. Anywhere else, say so:
+
+```csharp
+builder.ApplyTypedIdConventions(TypedIdStorage.ProviderDefault, typeof(Course).Assembly);
+```
+
+That leaves the column type and the collation to the provider. Ordering then depends on that
+collation being binary — without one, the database and `TypedId.Compare` can disagree about where a
+page stops.
+
 ### The decisions behind it
 
 | Decision | Why |
@@ -265,23 +307,19 @@ instead of quietly becoming the wrong id.
 
 ### Referencing another service's ids
 
-Declare a value object with the owning service's prefix and **no `New()`** — only the service that
-owns a prefix mints ids with it:
+Say that this service does not mint the prefix, and the generator leaves `New()` off:
 
 ```csharp
-public readonly record struct AuthUserId(Guid Value) : ITypedId<AuthUserId>
-{
-    public static string Prefix => "usr";   // the prefix the auth service mints, not ours
-    public static AuthUserId FromGuid(Guid value) => new(value);
-
-    public override string ToString() => TypedId.Format(this);
-    public static AuthUserId Parse(string s, IFormatProvider? _ = null) => TypedId.Parse<AuthUserId>(s);
-    public static bool TryParse(string? s, IFormatProvider? _, out AuthUserId result)
-        => TypedId.TryParse(s, out result);
-}
+[TypedId("usr", Minted = false)]   // the prefix the auth service mints, not ours
+public readonly partial record struct AuthUserId;
 ```
 
-It is a typed reference, not a foreign key.
+It is a typed reference, not a foreign key: it parses, formats, compares and persists like any other
+id, and the only thing missing is the one operation that would be a lie.
+
+`Minted = false` is enforced rather than implied. Leaving `New()` off a hand-written id was the
+whole of the old convention, and `TypedId.New<AuthUserId>()` walked straight around it — now it
+throws, naming the prefix and the service that owns it.
 
 ---
 
@@ -501,9 +539,9 @@ A row joins in by exposing the two columns the order is built on:
 ```csharp
 using i26.Core.Pagination;
 
-public sealed record CourseRow : ICursorPageable
+public sealed record CourseRow : ICursorPageable<CourseId>
 {
-    public required Guid Id { get; init; }
+    public required CourseId Id { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public required string Title { get; init; }
 }
@@ -512,6 +550,18 @@ public sealed record CourseRow : ICursorPageable
 The timestamp is what the page is ordered by; the id breaks ties between rows created in the same
 instant. Without the tie-breaker a page can repeat a row or skip one, which is the bug this design
 exists to avoid.
+
+**The tie-breaker is whatever the row's id already is.** A typed id works because it is comparable
+and parsable — the keyset predicate reaches SQL as a comparison on the column, and the cursor
+carries the id in its own textual form, prefix included. A row with no typed id says `Guid`:
+
+```csharp
+public sealed record NoteRow : ICursorPageable   // the same as ICursorPageable<Guid>
+{
+    public required Guid Id { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+```
 
 ### Entity Framework Core
 
@@ -526,14 +576,18 @@ var page = await db.Courses
         CreatedAt = course.CreatedAt,
         Title = course.Title,
     })
-    .ToPagedResponseAsync(request, cancellationToken: ct);
+    .ToPagedResponseAsync<CourseRow, CourseId>(request, cancellationToken: ct);
 
 return page.Value.Map(row => new CourseResponse(row.Id, row.Title));
 ```
 
 The ordering is applied for you, so the query arrives filtered and nothing else. The result is a
-`Result<PagedResponse<T>>`: a cursor that did not come from this API is a validation failure, which
-reaches the caller as a 400 rather than a 500.
+`Result<PagedResponse<T>>`: a cursor that did not come from this API — truncated, hand-written, or
+carrying another entity's id — is a validation failure, which reaches the caller as a 400 rather
+than a 500.
+
+Name both types when the id is a typed one; a row whose id is a `Guid` infers the rest and stays
+`ToPagedResponseAsync(request)`.
 
 > Project with an **object initializer**, not a constructor. Entity Framework binds
 > `new CourseRow { CreatedAt = … }` back to the column it came from and can order by it; it cannot
@@ -555,7 +609,7 @@ ORM side, for the query that outgrew it:
 ```csharp
 using i26.Dapper.Pagination;
 
-var page = await connection.ToPagedResponseAsync<CourseRow>(
+var page = await connection.ToPagedResponseAsync<CourseRow, CourseId>(
     """
     SELECT c."Id", c."Title", c."CreatedAt"
     FROM courses c
@@ -566,6 +620,9 @@ var page = await connection.ToPagedResponseAsync<CourseRow>(
     new { TenantId = tenantId },
     cancellationToken: ct);
 ```
+
+The registration above is what turns the cursor's id back into the prefixed text the column holds,
+so it is not optional once the tie-breaker is a typed id.
 
 Your query is wrapped as a derived table and the keyset predicate, the ordering and the limit go
 around it, so it only has to select the two ordering columns and filter. The column names are
@@ -593,9 +650,9 @@ front of it, and the seek stays a seek.
 
 For a list sorted by name rather than by creation, the same idea holds with a different key.
 `Cursor.EncodeKeyed` and `Cursor.TryDecodeKeyed` carry an arbitrary sort key alongside the id — the
-id is written first at its fixed width of 36 characters, because there is no separator a sort key is
-guaranteed not to contain. The query is yours to write; `CursorPage.From` builds the page from the
-rows you read.
+id is length-prefixed and the key takes the rest, because there is no separator a sort key is
+guaranteed not to contain and no width an id is guaranteed to have. The query is yours to write;
+`CursorPage.From` builds the page from the rows you read.
 
 ---
 
@@ -805,6 +862,12 @@ Multi-targets **net8.0**, **net9.0** and **net10.0**. On .NET 9 and later, UUIDv
 
 Everything is annotated for nullable reference types, ships XML documentation, and builds with
 warnings as errors.
+
+The parts that reach for reflection — the assembly scans behind `ApplyTypedIdConventions`,
+`AddTypedIdHandlers`, `TypedIdPrefix.ValidateAll` and the JSON converter factory — carry
+`RequiresUnreferencedCode` and `RequiresDynamicCode`, so a trimmed or AOT-published application is
+told which calls it has to account for rather than finding out at startup. Everything on a request
+path — formatting, parsing, comparing, the generated members — is free of both.
 
 ## Building
 
