@@ -7,32 +7,24 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
 
-    # Two floors here are decisions rather than versions, and a bot cannot tell the difference.
-    # Patches inside each line still arrive; a real advisory fails the build through NuGetAudit
-    # whatever this file says.
+    # These floors are decisions rather than versions, and there is no way to say so to a bot that
+    # knows one version per package. An advisory against any of them still fails the build, through
+    # NuGetAudit, whatever this file says.
     ignore:
+      # Runtime libraries are pinned per target framework, and dependabot rewrites every
+      # declaration of a package to a single version: an update it labels 9.0.6 -> 9.0.19, a patch,
+      # arrives having also moved the net8.0 condition from 8.0.13, a major. Filtering by update
+      # type does not help, because the label describes one declaration and the edit touches all of
+      # them. Moving a framework's line is done by hand, and it is rare.
+      - dependency-name: Microsoft.Extensions.*
+      - dependency-name: Microsoft.EntityFrameworkCore.*
+
       # A generator compiled against Roslyn X does not load in a compiler older than X: csc reports
       # CS9057, skips the generator, and the consumer gets errors about the members it did not
       # write. 4.8 is the floor of the oldest supported SDK, on purpose, and the generator uses
       # nothing newer than the 4.3 API — moving it costs consumers and buys nothing. None of it
       # ships either: the reference is PrivateAssets="all".
       - dependency-name: Microsoft.CodeAnalysis*
-        update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
-
-      # Runtime libraries are pinned per target framework, which dependabot cannot express: it sees
-      # one version string per reference and offers the newest for the net8.0 condition as readily
-      # as for the net10.0 one. Which line a framework sits on is a decision made by hand.
-      - dependency-name: Microsoft.Extensions.*
-        update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
-
-      - dependency-name: Microsoft.EntityFrameworkCore.*
-        update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
 
     groups:
       # What is left in the group is what is not pinned per framework, so one pull request per week
