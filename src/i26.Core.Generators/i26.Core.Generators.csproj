@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Part of i26.Core, and a separate project only because it has to be. A source generator runs
+        inside the compiler: it is loaded as netstandard2.0 whatever the project being compiled
+        targets, and it is packed into analyzers/ rather than lib/. One project cannot be both a
+        runtime library and a compiler extension, so this one carries the generator and ships inside
+        the i26.Core package. It is never a package of its own.
+    -->
+    <PropertyGroup>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <RootNamespace>i26.Core.Generators</RootNamespace>
+        <AssemblyName>i26.Core.Generators</AssemblyName>
+        <IsPackable>false</IsPackable>
+        <IsRoslynComponent>true</IsRoslynComponent>
+        <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+        <IncludeBuildOutput>false</IncludeBuildOutput>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!--
+            4.8 is the Roslyn that ships with the .NET 8 SDK, the oldest this library supports.
+            Nothing of it travels with the package: an analyzer runs inside the compiler.
+        -->
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0"
+                          PrivateAssets="all" ExcludeAssets="runtime" />
+    </ItemGroup>
+
+    <!--
+        AnalyzerReleases.Shipped.md and AnalyzerReleases.Unshipped.md track the rules this analyzer
+        reports, so adding or changing one is a deliberate edit. The analyzer SDK picks both up on
+        its own; including them here as well is what makes the workspace report a duplicate.
+    -->
+
+</Project>

@@ -7,6 +7,7 @@ multi-targeting net8.0, net9.0 and net10.0.
 | Project | Holds | External dependency |
 | --- | --- | --- |
 | `src/i26.Core` | Typed ids, `Result`/`Error`, pagination contracts | **none** |
+| `src/i26.Core.Generators` | The `[TypedId]` source generator, shipped inside i26.Core | Roslyn (compile only) |
 | `src/i26.Cqrs` | `ICommand`/`IQuery` and handler registration | DI abstractions |
 | `src/i26.EntityFrameworkCore` | Typed id conventions, paging over `IQueryable` | EF Core Relational |
 | `src/i26.Dapper` | Paging over a hand-written query | Dapper |
@@ -14,6 +15,11 @@ multi-targeting net8.0, net9.0 and net10.0.
 
 Contracts are split by layer, implementations by the dependency they carry. A domain project
 references `i26.Core` and nothing else.
+
+Six projects, five packages: `i26.Core.Generators` is `IsPackable=false` and travels inside
+`i26.Core` under `analyzers/dotnet/cs`. It is a separate project because Roslyn loads a generator as
+netstandard2.0 and packs it outside `lib/`, which one project cannot do alongside being a runtime
+library — not because it is a separate thing.
 
 ## Commands
 
@@ -55,6 +61,11 @@ NuGet advisory against anything referenced — which is why Dependabot keeps the
   Identity is the code and the type — arguments and metadata are payload.
 - **Typed id prefixes** are up to three lowercase letters. Longer needs
   `UsesExtendedPrefix => true` next to the prefix, and tops out at ten.
+- **New ids are declared with `[TypedId("crs")]`** on a partial struct; the generator writes the
+  members. The hand-written shape stays valid and the two are interchangeable — every test in
+  `GeneratedIdTests` would pass against either.
+- **The prefix rules exist twice**: in `TypedIdPrefix` and in the generator, which targets
+  netstandard2.0 and cannot reference the library it generates for. Change one, change the other.
 - **Tests run against real infrastructure** — SQLite in memory for EF Core and Dapper, a real
   `WebApplication` for ASP.NET — not mocks. A test that only proves the mock was called proves nothing.
 - **Test names are sentences**: `Rows_sharing_an_instant_are_still_cut_cleanly`.
@@ -93,7 +104,14 @@ afterwards with `PagedResponse.Map`.
 
 **PowerShell 5.1 mangles native arguments containing double quotes.** `git commit -m "…"` with quotes
 inside the message reaches git as several pathspecs. Write the message to a file and use
-`git commit -F`.
+`git commit -F`. Its `Set-Content -Encoding utf8` also writes a BOM, which the formatting gate
+rejects — use `[System.IO.File]::WriteAllText` with `UTF8Encoding($false)` when rewriting a source
+file from the shell.
+
+**A `record struct` is a `RecordDeclarationSyntax`, not a `StructDeclarationSyntax`.** A generator
+predicate that only looks for the latter silently skips every record struct, and the build still
+succeeds — an attributed partial struct with no members is valid C#. Match on
+`TypeDeclarationSyntax`, and write tests that *use* the generated members rather than only compiling.
 
 **C# 14 extension blocks compile but Rider 2025.2.x does not parse them** — it reads
 `extension(Foo f)` as a constructor and reports an error on a static class. The classic `this`

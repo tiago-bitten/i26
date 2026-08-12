@@ -15,4 +15,20 @@
 
     <!-- No external dependencies by design. -->
 
+    <!--
+        The generator runs inside the compiler, so it is referenced as an analyzer and none of it
+        travels with the assembly. Shipping it inside this package means [TypedId] works the moment
+        i26.Core is referenced, with nothing else to install.
+    -->
+    <ItemGroup>
+        <ProjectReference Include="..\i26.Core.Generators\i26.Core.Generators.csproj"
+                          OutputItemType="Analyzer"
+                          ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\i26.Core.Generators\bin\$(Configuration)\netstandard2.0\i26.Core.Generators.dll"
+              Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    </ItemGroup>
+
 </Project>

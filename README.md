@@ -52,10 +52,10 @@ app.MapPost("courses/{id}/publish", Handle)
 
 | Package | What it holds | Depends on |
 | --- | --- | --- |
-| `i26.Core` | Typed ids, UUIDv7, Crockford base32, the JSON converter, `Result`/`Error` | nothing outside the BCL |
+| `i26.Core` | Typed ids and their generator, `Result`/`Error`, pagination contracts | nothing outside the BCL |
 | `i26.Cqrs` | Command and query contracts, and the handler registration | `Microsoft.Extensions.DependencyInjection.Abstractions` |
 | `i26.EntityFrameworkCore` | Typed id conventions, and cursor paging over `IQueryable` | `Microsoft.EntityFrameworkCore.Relational` |
-| `i26.Dapper` | Cursor paging over a hand-written query | `Dapper` |
+| `i26.Dapper` | Typed id handlers, cursor paging over a hand-written query | `Dapper` |
 | `i26.AspNetCore` | Problem responses, endpoint discovery, global exception handler | ASP.NET Core shared framework |
 
 `i26.Core` has **no external dependencies** by design — it is meant to sit in a domain project
@@ -99,12 +99,34 @@ crs_01h455vb4pex5vsknk084sn02q
 
 ### Declaring one
 
-Each entity gets a `readonly record struct` with its prefix baked in. Everything delegates to the
-helpers, so there is nothing to get wrong:
-
 ```csharp
 using i26.Core.Ids;
 
+[TypedId("crs")]
+public readonly partial record struct CourseId;
+```
+
+That is the whole declaration. A generator ships inside `i26.Core` and writes the rest — the
+interface, `Value`, `New`, `ToString`, `Parse` and `TryParse` — so the eleven lines that never vary
+between one id and the next are not yours to keep in sync. A prefix past three characters says so
+on the attribute: `[TypedId("workspace", UsesExtendedPrefix = true)]`.
+
+Because the generator sees every id in the compilation, the rules become compile errors instead of
+runtime ones:
+
+| | |
+| --- | --- |
+| `I26ID001` | the type is not `partial` |
+| `I26ID002` | the prefix is empty, uppercase, or longer than the rule allows |
+| `I26ID003` | two ids declare the same prefix — the one mistake no per-type check can catch |
+| `I26ID004` | the type is nested inside another |
+
+<details>
+<summary>The same id written by hand</summary>
+
+Nothing depends on the generator: what it writes is exactly this, and the two are interchangeable.
+
+```csharp
 public readonly record struct CourseId(Guid Value) : ITypedId<CourseId>
 {
     public static string Prefix => "crs";
@@ -121,6 +143,8 @@ public readonly record struct CourseId(Guid Value) : ITypedId<CourseId>
 }
 ```
 
+</details>
+
 `CourseId` and `StudentId` are different types. Passing one where the other is expected does not
 compile — which is the whole point.
 
@@ -135,8 +159,9 @@ which rule it broke.
 
 There is one mistake no per-type check can catch: **two entities picking the same prefix.** Nothing
 stops `CourseId` and `ClassroomId` from both declaring `crs`, the code goes on compiling, and
-`crs_01h455…` quietly stops saying which entity it belongs to. One test in the project that declares
-the ids settles it:
+`crs_01h455…` quietly stops saying which entity it belongs to. Ids declared with `[TypedId]` are
+checked against each other while the project compiles; for ids written by hand, one test in the
+project that declares them settles it:
 
 ```csharp
 [Fact]
@@ -515,7 +540,15 @@ reaches the caller as a 400 rather than a 500.
 
 ### Dapper
 
-Same cursor, same response, for the query that outgrew the ORM:
+Typed ids need one registration, at startup, since Dapper keeps its handlers in static state:
+
+```csharp
+TypedIdDapperExtensions.AddTypedIdHandlers(typeof(CourseId).Assembly);
+```
+
+Without it, a query selecting an id column into a typed id property fails while materializing —
+Dapper has no conversion to fall back on. Paging is the same cursor and the same response as the
+ORM side, for the query that outgrew it:
 
 ```csharp
 using i26.Dapper.Pagination;
@@ -783,7 +816,7 @@ Every push and pull request runs the same three gates on Ubuntu and on Windows: 
 with warnings as errors, the tests on each of the three target frameworks, and a formatting check.
 Packages are built and attached to the run so a branch can be tried out before it is released.
 
-330 tests run against all three target frameworks. The Entity Framework tests execute against an
+353 tests run against all three target frameworks. The Entity Framework tests execute against an
 in-memory SQLite database, including the DDL with the `"C"` collation, and the paging tests walk
 every page of a seeded table on both the Entity Framework and the Dapper side, checking that no row
 is repeated or skipped; the ASP.NET Core tests build a real host and read back the routes and the
