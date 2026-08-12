@@ -39,6 +39,7 @@ app.MapPost("courses/{id}/publish", Handle)
 - [Typed identifiers](#typed-identifiers)
 - [Result pattern](#result-pattern)
 - [Commands and queries](#commands-and-queries)
+- [Domain events](#domain-events)
 - [Cursor pagination](#cursor-pagination)
 - [ASP.NET Core](#aspnet-core)
 - [Putting it together](#putting-it-together)
@@ -52,9 +53,9 @@ app.MapPost("courses/{id}/publish", Handle)
 
 | Package | What it holds | Depends on |
 | --- | --- | --- |
-| `i26.Core` | Typed ids and their generator, `Result`/`Error`, pagination contracts | nothing outside the BCL |
-| `i26.Cqrs` | Command and query contracts, and the handler registration | `Microsoft.Extensions.DependencyInjection.Abstractions` |
-| `i26.EntityFrameworkCore` | Typed id conventions, and cursor paging over `IQueryable` | `Microsoft.EntityFrameworkCore.Relational` |
+| `i26.Core` | Typed ids and their generator, `Result`/`Error`, pagination and domain event contracts | nothing outside the BCL |
+| `i26.Cqrs` | Command, query and domain event contracts, the handler registration, an in-process dispatcher | `Microsoft.Extensions.DependencyInjection.Abstractions` |
+| `i26.EntityFrameworkCore` | Typed id conventions, cursor paging over `IQueryable`, domain event collection on save | `Microsoft.EntityFrameworkCore.Relational` |
 | `i26.Dapper` | Typed id handlers, cursor paging over a hand-written query | `Dapper` |
 | `i26.AspNetCore` | Problem responses, endpoint discovery, global exception handler | ASP.NET Core shared framework |
 
@@ -524,6 +525,177 @@ about your application, not about a library. The registration is the plain close
 ```csharp
 services.Decorate(typeof(ICommandHandler<,>), typeof(ValidationDecorator.CommandHandler<,>));
 services.Decorate(typeof(ICommandHandler<>), typeof(LoggingDecorator.CommandBaseHandler<>));
+```
+
+---
+
+## Domain events
+
+An entity records what happened to it; something else reacts once the change is committed. There is
+no base entity here to inherit from — an entity says it raises events by implementing
+`IHasDomainEvents`, which is a list and two members.
+
+```csharp
+using i26.Core.DomainEvents;
+
+public sealed record CoursePublishedDomainEvent(CourseId Id) : IDomainEvent;
+
+public sealed class Course : IHasDomainEvents
+{
+    private readonly List<IDomainEvent> _domainEvents = [];
+
+    public IReadOnlyList<IDomainEvent> DomainEvents => _domainEvents;
+
+    public void ClearDomainEvents() => _domainEvents.Clear();
+
+    public Result Publish()
+    {
+        if (IsPublished)
+        {
+            return CourseErrors.AlreadyPublished;
+        }
+
+        IsPublished = true;
+        _domainEvents.Add(new CoursePublishedDomainEvent(Id));
+
+        return Result.Ok();
+    }
+}
+```
+
+Raising is private on purpose: an event is added by the behaviour that caused it, never by whoever
+happens to hold a reference to the entity. The interface exposes only what the infrastructure needs
+— what was raised, and a way to forget it once taken.
+
+Handlers are classes, as many per event as you like:
+
+```csharp
+internal sealed class NotifyStudentsHandler(IEmailer emailer)
+    : IDomainEventHandler<CoursePublishedDomainEvent>
+{
+    public Task HandleAsync(CoursePublishedDomainEvent domainEvent, CancellationToken ct = default)
+        => emailer.AnnounceAsync(domainEvent.Id, ct);
+}
+```
+
+`AddHandlers` registers them alongside the command and query handlers. Two handlers for one command
+is still refused; two handlers for one event is the point of an event, so both are kept.
+
+Nothing has to be configured on the model. A get-only `IReadOnlyList<IDomainEvent>` is neither a
+primitive collection nor a navigation candidate, so Entity Framework leaves it out of the model on
+its own — there is a test that pins exactly that.
+
+### Collecting and publishing are two steps
+
+Collecting takes the events off the entities as they are saved. Publishing hands them to their
+handlers. They are separate because the moment to publish is not the moment to collect: an event
+describes a row that a rollback would still take back, so it goes out after the transaction that
+carries it has committed — and only whoever began that transaction knows when that is.
+
+The `DomainEventQueue` is what sits between them, one per scope.
+
+```csharp
+using i26.Cqrs;
+using i26.EntityFrameworkCore.DomainEvents;
+
+builder.Services.AddHandlers(typeof(DependencyInjection).Assembly);  // every handler, events included
+builder.Services.AddDomainEvents();                                  // the queue and a dispatcher
+
+builder.Services.AddDbContext<AppDbContext>((provider, options) => options
+    .UseNpgsql(connectionString)
+    .UseDomainEvents(provider));
+```
+
+`UseDomainEvents` adds a `SaveChanges` interceptor that empties the entities into the queue on the
+way into the save, and publishes on the way out:
+
+| | What the interceptor does |
+| --- | --- |
+| `AfterSaveChanges` (default) | Collects, and publishes once the save has succeeded — unless a transaction is open on the context, in which case the events wait for whoever began it. |
+| `Manual` | Collects. Publication is always an explicit `queue.PublishAsync(ct)`. |
+
+Both modes collect *before* the save, not after: an entity being deleted is detached from the change
+tracker the moment the save completes, and its event would go with it. A save that then fails
+publishes nothing.
+
+Two things worth knowing. The synchronous `SaveChanges` collects but never publishes — publication
+is asynchronous — so a synchronous save leaves the events queued for the next publication. And a
+handler that throws stops the ones behind it and surfaces out of whatever called `PublishAsync`,
+which for `AfterSaveChanges` means out of `SaveChangesAsync`, after the data was written. If that
+matters, publish somewhere you control, or dispatch to a background queue.
+
+### Publishing where the transaction ends
+
+A decorator that owns the transaction owns the publication. It asks for the same scoped queue the
+interceptor filled:
+
+```csharp
+internal sealed class TransactionDecorator<TCommand>(
+    ICommandHandler<TCommand> inner,
+    AppDbContext db,
+    DomainEventQueue events) : ICommandHandler<TCommand>
+    where TCommand : ICommand
+{
+    public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
+    {
+        if (db.Database.CurrentTransaction is not null)
+        {
+            return await inner.HandleAsync(command, ct);
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+        var result = await inner.HandleAsync(command, ct);
+
+        if (result.IsFailure)
+        {
+            await transaction.RollbackAsync(ct);
+            events.Clear();
+
+            return result;
+        }
+
+        await transaction.CommitAsync(ct);
+        await events.PublishAsync(ct);
+
+        return result;
+    }
+}
+```
+
+This composes with the default mode rather than replacing it: saves inside the transaction find one
+open and stay quiet, and the commit is what publishes. `Manual` is for when you would rather the
+interceptor never publish at all.
+
+`PublishAsync` drains the queue before each dispatch and keeps going while handlers fill it again,
+so a handler that saves further changes has its own events published by the same call — there is no
+second publication to remember at the end of a handler.
+
+### A dispatcher of your own
+
+`AddDomainEvents` registers one that runs the handlers in process, in the scope that published, and
+registers it only if nothing else claimed `IDomainEventDispatcher`. Handing the events to a
+background queue instead is a class:
+
+```csharp
+internal sealed class BackgroundDomainEventsDispatcher(IBackgroundJobScheduler scheduler)
+    : IDomainEventDispatcher
+{
+    public Task DispatchAsync(IReadOnlyList<IDomainEvent> domainEvents, CancellationToken ct = default)
+    {
+        foreach (var domainEvent in domainEvents)
+        {
+            scheduler.Enqueue<ProcessDomainEventJob>(domainEvent, ct);
+        }
+
+        return Task.CompletedTask;
+    }
+}
+```
+
+```csharp
+services.AddScoped<IDomainEventDispatcher, BackgroundDomainEventsDispatcher>();
+services.AddDomainEvents();
 ```
 
 ---

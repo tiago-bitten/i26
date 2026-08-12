@@ -1,18 +1,20 @@
 using System.Reflection;
+using i26.Core.DomainEvents;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace i26.Cqrs;
 
-/// <summary>Registration of the command and query handlers of an application.</summary>
+/// <summary>Registration of the command, query and domain event handlers of an application.</summary>
 public static class CqrsServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers every command and query handler found in the given assemblies, scoped, under the
-    /// interfaces it implements. Internal and private handlers included.
+    /// Registers every command, query and domain event handler found in the given assemblies,
+    /// scoped, under the interfaces it implements. Internal and private handlers included.
     /// </summary>
     /// <exception cref="InvalidOperationException">
-    /// Two handlers answer the same request, which is refused rather than resolved to whichever was
-    /// scanned last.
+    /// Two handlers answer the same command or query, which is refused rather than resolved to
+    /// whichever was scanned last. A domain event takes as many handlers as it finds.
     /// </exception>
     /// <remarks>
     /// Called from wherever the application layer wires itself up. Scanning the same assembly twice
@@ -59,11 +61,20 @@ public static class CqrsServiceCollectionExtensions
 
         return definition == typeof(ICommandHandler<>)
             || definition == typeof(ICommandHandler<,>)
-            || definition == typeof(IQueryHandler<,>);
+            || definition == typeof(IQueryHandler<,>)
+            || definition == typeof(IDomainEventHandler<>);
     }
 
     private static void Register(IServiceCollection services, Type handled, Type implementation)
     {
+        if (handled.GetGenericTypeDefinition() == typeof(IDomainEventHandler<>))
+        {
+            // Many handlers per event is the point of an event, so the rule below does not apply.
+            // TryAddEnumerable keeps a second scan of the same assembly from registering it twice.
+            services.TryAddEnumerable(ServiceDescriptor.Scoped(handled, implementation));
+            return;
+        }
+
         var registered = services.FirstOrDefault(descriptor => descriptor.ServiceType == handled);
 
         if (registered is null)

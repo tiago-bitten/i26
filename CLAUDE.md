@@ -6,10 +6,10 @@ multi-targeting net8.0, net9.0 and net10.0.
 
 | Project | Holds | External dependency |
 | --- | --- | --- |
-| `src/i26.Core` | Typed ids, `Result`/`Error`, pagination contracts | **none** |
+| `src/i26.Core` | Typed ids, `Result`/`Error`, pagination and domain event contracts, `DomainEventQueue` | **none** |
 | `src/i26.Core.Generators` | The `[TypedId]` source generator, shipped inside i26.Core | Roslyn (compile only) |
-| `src/i26.Cqrs` | `ICommand`/`IQuery` and handler registration | DI abstractions |
-| `src/i26.EntityFrameworkCore` | Typed id conventions, paging over `IQueryable` | EF Core Relational |
+| `src/i26.Cqrs` | `ICommand`/`IQuery`, handler registration, the in-process domain event dispatcher | DI abstractions |
+| `src/i26.EntityFrameworkCore` | Typed id conventions, paging over `IQueryable`, the domain event interceptor | EF Core Relational |
 | `src/i26.Dapper` | Paging over a hand-written query | Dapper |
 | `src/i26.AspNetCore` | ProblemDetails, `IEndpoint`, exception handler | ASP.NET shared framework |
 
@@ -25,7 +25,7 @@ library — not because it is a separate thing.
 
 ```bash
 dotnet build i26.sln            # all 5 projects x 3 target frameworks
-dotnet test i26.sln             # 437 tests
+dotnet test i26.sln             # 476 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
@@ -165,6 +165,20 @@ rewrites the file. `i26.Core.Generators.Tests` pins both with `trackIncrementalG
 parts arrives twice, and writing the same hint name twice throws out of `AddSource` and discards
 every generated id in the compilation. Dedupe over attribute applications — deduping over declaring
 parts silently drops a type whose attribute sits on the part that does not sort first.
+
+**A deleted entity is gone from the change tracker before `SavedChanges` runs.** `AcceptAllChanges`
+detaches it as part of the save, so an interceptor that collects domain events afterwards silently
+loses every event raised on the way to a delete. `DomainEventInterceptor` collects in
+`SavingChanges` for that reason, and a save that then fails leaves the events queued — which is
+right, since the change is still pending on the context.
+
+**Entity Framework leaves `IReadOnlyList<IDomainEvent>` out of the model on its own.** A get-only
+list of an interface is neither a primitive collection nor a navigation candidate, so the
+`IgnoreAny<IDomainEvent>()` convention that seemed obviously necessary — every clean-architecture
+template writes `builder.Ignore(e => e.DomainEvents)` — turned out to be a no-op, and was written
+and then deleted. `The_events_stay_out_of_the_model_with_nothing_configured` pins the behaviour so
+that a version of EF Core changing its mind shows up as a failure and not as a mapping error in
+somebody's application.
 
 **C# 14 extension blocks compile but Rider 2025.2.x does not parse them** — it reads
 `extension(Foo f)` as a constructor and reports an error on a static class. The classic `this`
