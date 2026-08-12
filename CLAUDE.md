@@ -31,6 +31,21 @@ dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
 
+## Releasing
+
+The tag is the version and the trigger. Pushing `v0.2.0` runs `release.yml`, which builds and tests
+that commit, packs the six packages at the version in the tag and pushes them to nuget.org.
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+No API key exists anywhere. The job asks GitHub for an OIDC token and nuget.org trades it for one
+that lives an hour — which works only while the trusted publishing policy on nuget.org names this
+repository **and this workflow file**. Renaming `release.yml` stops publishing until the policy is
+edited to match, and the error will not say so. The single secret is `NUGET_USER`, the nuget.org
+profile name rather than an email.
+
 CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and Windows for every push and pull
 request: Release build, tests on each target framework, `dotnet format --verify-no-changes`, then
 pack. Two things follow from warnings being errors: an analyzer complaint fails CI, and so does a

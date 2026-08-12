@@ -1,0 +1,107 @@
+name: release
+
+# The tag is the trigger and the version: v0.2.0 publishes 0.2.0, v0.2.0-beta.1 publishes the
+# prerelease. Nothing publishes from a branch, so a release is always a commit someone named.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# Two tags pushed together would race for the same package ids.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # What nuget.org trades for a key that lives an hour. No API key is stored anywhere.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # One SDK per framework the projects target, the same as ci.
+      - name: Install .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      # Fails here rather than three minutes in, when the login gets an empty user and says
+      # something else entirely.
+      - name: Check the publisher is configured
+        env:
+          NUGET_USER: ${{ secrets.NUGET_USER }}
+        run: |
+          if [ -z "$NUGET_USER" ]; then
+            echo "::error::NUGET_USER is not set. It is the nuget.org profile name — not an email — and it has to match the trusted publishing policy on nuget.org."
+            exit 1
+          fi
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::'${GITHUB_REF_NAME}' is not vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-prerelease."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing $version"
+
+      - name: Restore
+        run: dotnet restore
+
+      # The version is passed to build as well as to pack, so the assembly and the package agree.
+      - name: Build
+        run: >
+          dotnet build --configuration Release --no-restore
+          -p:Version=${{ steps.version.outputs.version }}
+
+      # ci ran on this commit already. It runs again here because what is about to be published is
+      # what was built in this job, and nothing else.
+      - name: Test
+        run: dotnet test --configuration Release --no-build
+
+      - name: Pack
+        run: >
+          dotnet pack --configuration Release --no-build
+          -p:Version=${{ steps.version.outputs.version }}
+          --output artifacts/packages
+
+      - name: Sign in to nuget.org
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # Only the .nupkg is listed: the client finds the .snupkg beside it and pushes the symbols on
+      # its own. --skip-duplicate makes a re-run of a half-finished release harmless.
+      - name: Push
+        run: >
+          dotnet nuget push "artifacts/packages/*.nupkg"
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ steps.version.outputs.version }}
+          path: artifacts/packages
+          if-no-files-found: error
