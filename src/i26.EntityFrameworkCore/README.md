@@ -69,6 +69,39 @@ asserting against the clock.
 The properties keep their private setters — the interceptor writes through Entity Framework's own
 metadata, which is what stops application code from choosing when something was created.
 
+### The configuration, and what it does not need to say
+
+```csharp
+internal sealed class CourseConfiguration : EntityConfiguration<Course, CourseId>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Course> builder)
+        => builder.Property(course => course.Title).HasMaxLength(200);
+}
+```
+
+The base is four lines, and the reason is worth knowing: conventions already find the key, refuse to
+generate the id, make the timestamps required and leave the domain events out of the model. Writing
+`HasKey(e => e.Id)`, `ValueGeneratedNever()`, `IsRequired()` and `Ignore(e => e.DomainEvents)` is
+writing what is already true — and every line of it is measured in `EntityConfigurationTests`, so a
+version of Entity Framework that changes its mind fails there rather than in your application.
+
+What is not free is the index a cursor page reads:
+
+```sql
+CREATE INDEX ... ON courses (created_at DESC, id DESC)
+```
+
+The base adds it. **The instant first and the id to break its ties** — the pair the other way round
+is the one that is easy to write and the one a page cannot use. A table nobody pages says so, since
+an index costs every write:
+
+```csharp
+protected override bool IsPaged => false;
+```
+
+A `DeletableEntity<TId>` uses the same base: hiding the deleted rows is a filter over the whole
+model, not something a single configuration does.
+
 ### Hiding what was deleted
 
 ```csharp

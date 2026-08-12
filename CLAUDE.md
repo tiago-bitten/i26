@@ -26,7 +26,7 @@ library — not because it is a separate thing.
 
 ```bash
 dotnet build i26.sln            # all 6 packages x 3 target frameworks
-dotnet test i26.sln             # 554 tests
+dotnet test i26.sln             # 559 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
@@ -189,6 +189,13 @@ rewrites the file. `i26.Core.Generators.Tests` pins both with `trackIncrementalG
 parts arrives twice, and writing the same hint name twice throws out of `AddSource` and discards
 every generated id in the compilation. Dedupe over attribute applications — deduping over declaring
 parts silently drops a type whose attribute sits on the part that does not sort first.
+
+**`context.Model` is read-optimized and drops what a query does not need — the direction of an
+index included.** `IReadOnlyIndex.IsDescending` throws on it, saying to use
+`GetService<IDesignTimeModel>().Model`, which is what `EntityConfigurationTests` builds from. And
+the value there is encoded rather than literal: **null means every column ascending, an empty list
+means every column descending**, so asserting `[true, true]` fails against an index that is exactly
+what was asked for.
 
 **A typed id declared inside another type fails as a missing boxing conversion, not as
 `I26ID004`.** Nesting is refused by the generator, so it writes no members — and the first thing
