@@ -18,6 +18,7 @@ updates:
       # them. Moving a framework's line is done by hand, and it is rare.
       - dependency-name: Microsoft.Extensions.*
       - dependency-name: Microsoft.EntityFrameworkCore.*
+      - dependency-name: Microsoft.Data.Sqlite*
 
       # A generator compiled against Roslyn X does not load in a compiler older than X: csc reports
       # CS9057, skips the generator, and the consumer gets errors about the members it did not
