@@ -1,8 +1,8 @@
 # i26
 
 Building blocks for .NET services: strongly typed identifiers, a result pattern, CQRS contracts,
-cursor pagination, and the ASP.NET Core boundary that ties them together. Five packages,
-multi-targeting net8.0, net9.0 and net10.0.
+cursor pagination, domain events, and the ASP.NET Core boundary that ties them together. Six
+packages, multi-targeting net8.0, net9.0 and net10.0.
 
 | Project | Holds | External dependency |
 | --- | --- | --- |
@@ -11,12 +11,13 @@ multi-targeting net8.0, net9.0 and net10.0.
 | `src/i26.Cqrs` | `ICommand`/`IQuery`, handler registration, the in-process domain event dispatcher | DI abstractions |
 | `src/i26.EntityFrameworkCore` | Typed id conventions, the async query backend, the domain event interceptor | EF Core Relational |
 | `src/i26.Dapper` | Paging over a hand-written query | Dapper |
+| `src/i26.Hosting` | Background domain event dispatch, as a hosted service | Hosting abstractions |
 | `src/i26.AspNetCore` | ProblemDetails, `IEndpoint`, exception handler | ASP.NET shared framework |
 
 Contracts are split by layer, implementations by the dependency they carry. A domain project
 references `i26.Core` and nothing else.
 
-Six projects, five packages: `i26.Core.Generators` is `IsPackable=false` and travels inside
+Seven projects, six packages: `i26.Core.Generators` is `IsPackable=false` and travels inside
 `i26.Core` under `analyzers/dotnet/cs`. It is a separate project because Roslyn loads a generator as
 netstandard2.0 and packs it outside `lib/`, which one project cannot do alongside being a runtime
 library — not because it is a separate thing.
@@ -24,8 +25,8 @@ library — not because it is a separate thing.
 ## Commands
 
 ```bash
-dotnet build i26.sln            # all 5 projects x 3 target frameworks
-dotnet test i26.sln             # 519 tests
+dotnet build i26.sln            # all 6 packages x 3 target frameworks
+dotnet test i26.sln             # 530 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
@@ -166,6 +167,13 @@ parts arrives twice, and writing the same hint name twice throws out of `AddSour
 every generated id in the compilation. Dedupe over attribute applications — deduping over declaring
 parts silently drops a type whose attribute sits on the part that does not sort first.
 
+**A `BackgroundService` that stops on its stopping token throws away whatever it was queueing
+for.** Cancelling the read is what the shape suggests, and it drops every event still in the
+channel. `DomainEventBackgroundService` registers a callback on the token that completes the
+*writer* instead: `ReadAllAsync` then ends when the queue empties, `base.StopAsync` waits for that,
+and the host's `ShutdownTimeout` is what bounds it. The handlers get `CancellationToken.None` for
+the same reason — a handler cancelled halfway leaves the same mess as one that never ran.
+
 **EF Core inlines `Expression.Invoke`, so composing predicates with it is not the bug it looks
 like.** Verified on EF 8 and EF 10 against SQLite: `Invoke(left, p) && Invoke(right, p)` comes out
 as a plain `WHERE a AND b`, because the query pipeline removes invocations before translating. The
@@ -205,7 +213,7 @@ parameter avoids the noise.
 ## Layout
 
 ```
-src/                    the five packages
+src/                    the six packages
 tests/                  one test project per package
 Directory.Build.props   shared build and package metadata
 nuget.config            <clear /> — the corporate feed is not needed and 401s

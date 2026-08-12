@@ -55,10 +55,11 @@ app.MapPost("courses/{id}/publish", Handle)
 
 | Package | What it holds | Depends on |
 | --- | --- | --- |
-| `i26.Core` | Typed ids and their generator, `Result`/`Error`, cursor paging, domain event and query contracts | nothing outside the BCL |
+| `i26.Core` | Typed ids and their generator, `Result`/`Error`, cursor paging, domain events, specifications, the query seam | nothing outside the BCL |
 | `i26.Cqrs` | Command, query and domain event contracts, the handler registration, an in-process dispatcher | `Microsoft.Extensions.DependencyInjection.Abstractions` |
 | `i26.EntityFrameworkCore` | Typed id conventions, cursor paging over `IQueryable`, domain event collection on save | `Microsoft.EntityFrameworkCore.Relational` |
 | `i26.Dapper` | Typed id handlers, cursor paging over a hand-written query | `Dapper` |
+| `i26.Hosting` | Background handling of domain events, as a hosted service | `Microsoft.Extensions.Hosting.Abstractions` |
 | `i26.AspNetCore` | Problem responses, endpoint discovery, global exception handler | ASP.NET Core shared framework |
 
 `i26.Core` has **no external dependencies** by design — it is meant to sit in a domain project
@@ -80,6 +81,7 @@ dotnet add package i26.Core
 dotnet add package i26.Cqrs
 dotnet add package i26.EntityFrameworkCore
 dotnet add package i26.Dapper
+dotnet add package i26.Hosting
 dotnet add package i26.AspNetCore
 ```
 
@@ -700,6 +702,38 @@ services.AddScoped<IDomainEventDispatcher, BackgroundDomainEventsDispatcher>();
 services.AddDomainEvents();
 ```
 
+### Handling them in the background
+
+Running the handlers in process is running them **in the request**: the caller waits for them, and a
+handler that throws surfaces out of whatever published. `i26.Hosting` is the same handlers, off the
+request, with nothing to install:
+
+```csharp
+using i26.Hosting.DomainEvents;
+
+builder.Services.AddHandlers(typeof(DependencyInjection).Assembly);
+builder.Services.AddBackgroundDomainEvents();
+```
+
+Publishing writes to an in-memory queue and returns. A hosted service reads it and runs the handlers
+one event at a time, **each in a scope of its own** — which is the part worth knowing, because that
+scope has its own `DbContext` and no user or tenant resolved in it. What a handler needs about who
+did what, the event has to carry.
+
+| | |
+| --- | --- |
+| `Capacity` | How many events may be waiting. Publishing waits while the queue is full, rather than dropping. Default 1024, `null` for no limit. |
+| `Concurrency` | How many are handled at once. Default 1, which keeps them in the order they were raised. |
+
+A handler that throws is logged and the queue keeps moving. Stopping the host stops accepting events
+and hands over what is already queued, within whatever `ShutdownTimeout` allows — but the queue is
+in memory, so **what it holds when the process dies is lost**. That is the trade for having no
+Redis, no database table and no broker: fine for a notification or a projection refresh, not for
+something that must happen.
+
+When it must happen, the dispatcher is the seam and the outbox goes behind it: write the events to a
+table in the same transaction that saved the change, and let something else read that table.
+
 ---
 
 ## Awaiting a query without an ORM
@@ -1135,6 +1169,11 @@ Three codes to add to your resources: `general.failure`, `request.body.invalid` 
 
 ## Putting it together
 
+**Nothing registers itself.** A package cannot see your container, and would not know which
+assemblies to scan or which context is yours if it could. Every call below is one you make, and none
+of them is required by another package — an application with no Entity Framework skips those lines
+and everything else still works.
+
 ```csharp
 using System.Reflection;
 using i26.AspNetCore.Diagnostics;
@@ -1142,13 +1181,31 @@ using i26.AspNetCore.Endpoints;
 using i26.Core.Ids.Json;
 using i26.Core.Results;
 using i26.Cqrs;
+using i26.EntityFrameworkCore.DomainEvents;
+using i26.EntityFrameworkCore.Ids;
+using i26.EntityFrameworkCore.Queries;
+using i26.Hosting.DomainEvents;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// i26.Cqrs — every handler in the assembly, and the domain event plumbing
+builder.Services.AddHandlers(typeof(PublishCourseCommand).Assembly);
+builder.Services.AddDomainEvents();
+
+// i26.Hosting — optional, and it takes over the dispatcher AddDomainEvents just registered
+builder.Services.AddBackgroundDomainEvents();
+
+// i26.EntityFrameworkCore — the executor an application layer awaits queries through
+builder.Services.AddEfCoreAsyncQueries();
+
+builder.Services.AddDbContext<AppDbContext>((provider, options) => options
+    .UseNpgsql(builder.Configuration.GetConnectionString("Default"))
+    .UseDomainEvents(provider));          // ← the one that fails silently if you forget it
+
+// i26.AspNetCore
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddEndpoints(Assembly.GetExecutingAssembly());
-builder.Services.AddHandlers(typeof(PublishCourseCommand).Assembly);
 builder.Services.AddSingleton<IErrorTranslator, ResourceErrorTranslator>();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -1169,6 +1226,27 @@ And in the `DbContext`:
 protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     => builder.ApplyTypedIdConventions(typeof(Course).Assembly);
 ```
+
+Two more that are not container registrations. Dapper keeps its handlers in static state, so its
+one call goes at startup and takes no services:
+
+```csharp
+TypedIdDapperExtensions.AddTypedIdHandlers(typeof(Course).Assembly);   // i26.Dapper
+TypedIdPrefix.ValidateAll(typeof(Course).Assembly);                    // optional: fails fast on a bad or duplicate prefix
+```
+
+`i26.Core` asks for nothing. `Result`, the typed ids, specifications and `WhereIf` are types and
+extension methods, with no registration behind them.
+
+### What a missing call looks like
+
+Almost all of them fail immediately and say so: without `AddEfCoreAsyncQueries` the
+`IAsyncQueryExecutor` does not resolve, without `AddDomainEvents` the `UseDomainEvents` call throws
+naming the method you skipped, without `AddHandlers` the endpoint cannot resolve its handler.
+
+**`UseDomainEvents` is the exception, and the one to not forget.** Leave it off and the application
+starts, saves, and raises events that nobody ever collects — an entity raising an event that nothing
+takes is indistinguishable from an entity that raised nothing.
 
 > **Naming note.** If your project has a namespace ending in `Results` — say `Api.Results` — as a
 > sibling of the one holding your endpoints, the identifier `Results` in those files resolves to

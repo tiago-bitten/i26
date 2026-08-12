@@ -5,13 +5,18 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace i26.Cqrs;
 
-/// <summary>Runs the handlers of each event in the scope that published it.</summary>
-internal sealed class InProcessDomainEventDispatcher(IServiceProvider serviceProvider) : IDomainEventDispatcher
+/// <summary>Runs the handlers of each event in the scope it is resolved from.</summary>
+/// <remarks>
+/// What <c>AddDomainEvents</c> registers. i26.Hosting resolves it by name instead, to run the
+/// handlers in the scope it opened rather than in the one that published.
+/// </remarks>
+public sealed class InProcessDomainEventDispatcher(IServiceProvider serviceProvider) : IDomainEventDispatcher
 {
     // Keyed on the runtime type of the event, which is what the closed handler interface is built
     // from. Static: the reflection behind a domain event is the same for the life of the process.
     private static readonly ConcurrentDictionary<Type, Handling> Handlings = new();
 
+    /// <inheritdoc />
     public async Task DispatchAsync(
         IReadOnlyList<IDomainEvent> domainEvents,
         CancellationToken cancellationToken = default)
