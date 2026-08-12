@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <!-- One framework: the generator runs inside the compiler, not on a target runtime. -->
+        <TargetFramework>net8.0</TargetFramework>
+        <RootNamespace>i26.Core.Generators.Tests</RootNamespace>
+        <AssemblyName>i26.Core.Generators.Tests</AssemblyName>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RollForward>Major</RollForward>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+        <!--
+            Pinned to the Roslyn of the .NET 8 SDK on purpose. Left floating, the suite would only
+            ever validate against whatever the newest installed SDK ships, and the floor this
+            library supports would go untested.
+        -->
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- A plain reference, not an analyzer one: these tests drive the generator by hand. -->
+        <ProjectReference Include="..\..\src\i26.Core.Generators\i26.Core.Generators.csproj" />
+        <ProjectReference Include="..\..\src\i26.Core\i26.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+</Project>

@@ -1,19 +1,16 @@
 using System.Collections.Immutable;
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 namespace i26.Core.Generators;
 
-/// <summary>
-/// Writes the members of every <c>[TypedId]</c> struct.
-/// </summary>
+/// <summary>Writes the members of every <c>[TypedId]</c> struct.</summary>
 /// <remarks>
-/// The output is the canonical hand-written id, character for character, so a generated id and a
-/// hand-written one are interchangeable. What the generator adds on top is the checking: the prefix
-/// rules and the collision between two ids become compile errors, where a hand-written id would
-/// only find out at first use, or in a test, or never.
+/// The output is the canonical hand-written id, so the two are interchangeable. What the generator
+/// adds is the checking: the prefix rules and the collision between two ids become compile errors.
 /// </remarks>
 [Generator(LanguageNames.CSharp)]
 public sealed class TypedIdGenerator : IIncrementalGenerator
@@ -24,13 +21,29 @@ public sealed class TypedIdGenerator : IIncrementalGenerator
     /// <summary>Longest prefix a typed id may have.</summary>
     /// <remarks>
     /// The same rule as <c>TypedIdPrefix</c> in i26.Core, restated because an analyzer targets
-    /// netstandard2.0 and cannot reference the library it generates for. The two are kept in step
-    /// by the tests.
+    /// netstandard2.0 and cannot reference the library it generates for. Held in step by
+    /// <c>PrefixRuleTests</c>, which reads both through reflection.
     /// </remarks>
-    private const int MaxPrefixLength = 3;
+    internal const int MaxPrefixLength = 3;
 
     /// <summary>Longest prefix an id that opted in may have.</summary>
-    private const int MaxExtendedPrefixLength = 10;
+    internal const int MaxExtendedPrefixLength = 10;
+
+    // Spelled in full so nothing a consumer declares can shadow them. Hoisting these into constants
+    // would only move the text; the qualified names are what the generated file has to say.
+    private const string GuidType = "global::System.Guid";
+    private const string FormatProviderType = "global::System.IFormatProvider";
+    private const string IdInterface = "global::i26.Core.Ids.ITypedId";
+    private const string Runtime = "global::i26.Core.Ids.TypedId";
+
+    /// <summary>Tracking names, so a test can assert the pipeline reused what it should have.</summary>
+    internal const string ShapesNode = "Shapes";
+
+    /// <summary>Tracking name of the per-declaration diagnostics node.</summary>
+    internal const string SelfChecksNode = "SelfChecks";
+
+    /// <summary>Tracking name of the batched prefix-claim node.</summary>
+    internal const string ClaimsNode = "Claims";
 
     /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -38,122 +51,313 @@ public sealed class TypedIdGenerator : IIncrementalGenerator
         var ids = context.SyntaxProvider
             .ForAttributeWithMetadataName(
                 AttributeName,
-                // A record struct is a RecordDeclarationSyntax, not a StructDeclarationSyntax, and
-                // both are TypeDeclarationSyntax. The attribute already restricts the target to a
-                // struct, so nothing else can reach here.
-                predicate: static (node, _) => node is StructDeclarationSyntax or RecordDeclarationSyntax,
-                transform: static (attributed, _) => Describe(attributed))
+                predicate: static (node, _) => IsStructDeclaration(node),
+                transform: static (attributed, token) => Describe(attributed, token))
             .Where(static id => id is not null)
-            .Select(static (id, _) => id!)
-            .Collect();
+            .Select(static (id, _) => id!);
 
-        context.RegisterSourceOutput(ids, static (production, all) => Emit(production, all));
+        // Three nodes rather than one. Nothing about CourseId's generated text depends on StudentId
+        // existing — only the duplicate-prefix rule does — so only that rule pays for the batch.
+
+        // Per id, keyed on the shape alone: an edit anywhere else, including above this declaration,
+        // leaves it equal and nothing is written again.
+        context.RegisterSourceOutput(
+            ids.Select(static (id, _) => id.Shape).WithTrackingName(ShapesNode),
+            static (production, shape) =>
+            {
+                production.CancellationToken.ThrowIfCancellationRequested();
+
+                if (shape.IsEmittable)
+                {
+                    production.AddSource(shape.HintName, SourceText.From(Write(shape), Encoding.UTF8));
+                }
+            });
+
+        // Per id: the checks one declaration answers on its own.
+        context.RegisterSourceOutput(
+            ids.Select(static (id, _) => id.SelfCheck).WithTrackingName(SelfChecksNode),
+            static (production, check) => ReportSelfCheck(production, check));
+
+        // Whole compilation, but only the prefix claim travels and only diagnostics come out.
+        context.RegisterSourceOutput(
+            ids.Select(static (id, _) => id.Claim).Collect().WithTrackingName(ClaimsNode),
+            static (production, claims) => ReportDuplicates(production, claims));
     }
 
+    /// <summary>
+    /// Struct-shaped syntax only. A <see cref="RecordDeclarationSyntax"/> is also a record class,
+    /// which reaches here because the attribute's target is enforced by the compiler, not by this
+    /// pipeline.
+    /// </summary>
+    private static bool IsStructDeclaration(SyntaxNode node) =>
+        node is StructDeclarationSyntax
+        || (node is RecordDeclarationSyntax record
+            && record.ClassOrStructKeyword.IsKind(SyntaxKind.StructKeyword));
+
     /// <summary>Reads everything the generator needs off one attributed declaration.</summary>
-    private static TypedId? Describe(GeneratorAttributeSyntaxContext attributed)
+    private static TypedId? Describe(GeneratorAttributeSyntaxContext attributed, CancellationToken token)
     {
-        if (attributed.TargetSymbol is not INamedTypeSymbol type)
+        token.ThrowIfCancellationRequested();
+
+        // A record class still arrives here, and the compiler has already rejected it. Piling
+        // generated errors onto code that will not compile anyway helps nobody.
+        if (attributed.TargetSymbol is not INamedTypeSymbol type
+            || type.TypeKind != TypeKind.Struct
+            || attributed.TargetNode is not TypeDeclarationSyntax declaration)
         {
             return null;
         }
 
         var attribute = attributed.Attributes[0];
 
-        var prefix = attribute.ConstructorArguments.Length == 1
+        // The attribute arrives once per declaration it is written on, so a type attributed on two
+        // partial parts arrives twice. Writing the same file twice throws out of AddSource and
+        // discards every generated id in the compilation.
+        if (!SpeaksForTheType(type, attribute))
+        {
+            return null;
+        }
+
+        var prefix = (attribute.ConstructorArguments.Length == 1
             ? attribute.ConstructorArguments[0].Value as string
-            : null;
+            : null) ?? string.Empty;
 
         var extended = attribute.NamedArguments
             .FirstOrDefault(argument => argument.Key == ExtendedPrefixArgument)
             .Value.Value is true;
 
-        if (attributed.TargetNode is not TypeDeclarationSyntax declaration)
-        {
-            return null;
-        }
+        var containing = type.ContainingNamespace.IsGlobalNamespace
+            ? null
+            : type.ContainingNamespace.ToDisplayString();
+
+        var parameters = FindParameterList(type, declaration, token);
+        var complaint = Explain(prefix, extended);
+
+        var isPartial = declaration.Modifiers.Any(SyntaxKind.PartialKeyword);
+        var isNested = type.ContainingType is not null;
+        var isGeneric = type.Arity > 0;
+
+        // Settled once here rather than per run, and shared by the two nodes that need it: an id the
+        // generator cannot write must not claim its prefix either, or a rejected declaration would
+        // stack a spurious collision on top of its real error.
+        var emittable = isPartial
+                        && !isNested
+                        && !isGeneric
+                        && type is { IsFileLocal: false, IsRefLikeType: false }
+                        && parameters is null
+                        && complaint is null;
+
+        var location = LocationInfo.From(declaration.Identifier.GetLocation());
+        var prefixLocation = PrefixLocationOf(attribute, location, token);
 
         return new TypedId(
-            type.Name,
-            type.ContainingNamespace.IsGlobalNamespace ? null : type.ContainingNamespace.ToDisplayString(),
-            type.DeclaredAccessibility == Accessibility.Public ? "public" : "internal",
-            prefix ?? string.Empty,
-            extended,
-            declaration.Modifiers.Any(modifier => modifier.ValueText == "partial"),
-            type.IsReadOnly,
-            type.IsRecord,
-            type.ContainingType is not null,
-            LocationInfo.From(declaration.Identifier.GetLocation()));
+            new Shape(
+                type.Name,
+                containing,
+                type.DeclaredAccessibility == Accessibility.Public ? "public" : "internal",
+                prefix,
+                extended,
+                type.IsReadOnly,
+                type.IsRecord,
+                emittable),
+            new SelfCheck(
+                type.Name,
+                prefix,
+                isPartial,
+                isNested,
+                isGeneric,
+                type.IsFileLocal,
+                type.IsRefLikeType,
+                complaint,
+                location,
+                prefixLocation,
+                parameters is null ? null : LocationInfo.From(parameters.GetLocation())),
+            new Claim(type.Name, containing, prefix, emittable, location, prefixLocation));
     }
 
-    /// <summary>Checks the whole set, then writes the ones that hold up.</summary>
-    private static void Emit(SourceProductionContext production, ImmutableArray<TypedId> ids)
+    /// <summary>
+    /// True when this is the one attributed part that speaks for the type. Ordering by file path
+    /// rather than by the compilation's tree order keeps the choice stable as files come and go.
+    /// </summary>
+    private static bool SpeaksForTheType(INamedTypeSymbol type, AttributeData attribute)
     {
-        var owners = new Dictionary<string, TypedId>(StringComparer.Ordinal);
+        var applications = type.GetAttributes()
+            .Where(candidate => candidate.AttributeClass?.ToDisplayString() == AttributeName)
+            .Select(candidate => candidate.ApplicationSyntaxReference)
+            .Where(reference => reference is not null)
+            .ToList();
 
-        // Sorted so a collision always lands on the same declaration. Left in the order the
-        // compilation happened to hand them over, the error would move between builds.
-        foreach (var id in ids.OrderBy(id => id.Namespace ?? string.Empty, StringComparer.Ordinal)
-                     .ThenBy(id => id.Name, StringComparer.Ordinal))
+        if (applications.Count < 2)
         {
-            if (id.IsNested)
+            return true;
+        }
+
+        var first = applications
+            .OrderBy(reference => reference!.SyntaxTree.FilePath, StringComparer.Ordinal)
+            .ThenBy(reference => reference!.Span.Start)
+            .First()!;
+
+        var mine = attribute.ApplicationSyntaxReference;
+
+        return mine is not null
+            && mine.SyntaxTree.FilePath == first.SyntaxTree.FilePath
+            && mine.Span.Start == first.Span.Start;
+    }
+
+    /// <summary>
+    /// The primary constructor parameter list, wherever it was written: only one part may carry it,
+    /// and it does not have to be the part carrying the attribute.
+    /// </summary>
+    private static ParameterListSyntax? FindParameterList(
+        INamedTypeSymbol type,
+        TypeDeclarationSyntax declaration,
+        CancellationToken token)
+    {
+        if (declaration.ParameterList is not null || type.DeclaringSyntaxReferences.Length == 1)
+        {
+            return declaration.ParameterList;
+        }
+
+        foreach (var reference in type.DeclaringSyntaxReferences)
+        {
+            if (reference.GetSyntax(token) is TypeDeclarationSyntax part && part.ParameterList is not null)
+            {
+                return part.ParameterList;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Where the prefix was written, so a complaint about it lands on the string to edit rather than
+    /// on the type name.
+    /// </summary>
+    private static LocationInfo PrefixLocationOf(
+        AttributeData attribute,
+        LocationInfo fallback,
+        CancellationToken token)
+    {
+        if (attribute.ApplicationSyntaxReference?.GetSyntax(token) is not AttributeSyntax syntax)
+        {
+            return fallback;
+        }
+
+        // The first argument that is not a property assignment: [TypedId(prefix: "crs")] is legal,
+        // so a name colon still means the prefix.
+        var argument = syntax.ArgumentList?.Arguments
+            .FirstOrDefault(candidate => candidate.NameEquals is null);
+
+        return LocationInfo.From(argument?.GetLocation() ?? syntax.GetLocation());
+    }
+
+    /// <summary>Reports what one declaration can be judged on without seeing any other.</summary>
+    private static void ReportSelfCheck(SourceProductionContext production, SelfCheck check)
+    {
+        production.CancellationToken.ThrowIfCancellationRequested();
+
+        // Shape first: a declaration the generator cannot write into at all gets one complaint
+        // rather than a list of them.
+        if (Unsupported(check) is { } shape)
+        {
+            production.ReportDiagnostic(Diagnostic.Create(
+                TypedIdDiagnostics.UnsupportedShape, check.Location.ToLocation(), check.Name, shape));
+            return;
+        }
+
+        if (check.IsNested)
+        {
+            production.ReportDiagnostic(Diagnostic.Create(
+                TypedIdDiagnostics.Nested, check.Location.ToLocation(), check.Name));
+            return;
+        }
+
+        if (!check.IsPartial)
+        {
+            production.ReportDiagnostic(Diagnostic.Create(
+                TypedIdDiagnostics.NotPartial, check.Location.ToLocation(), check.Name));
+            return;
+        }
+
+        if (check.ParameterListLocation is { } parameters)
+        {
+            production.ReportDiagnostic(Diagnostic.Create(
+                TypedIdDiagnostics.PrimaryConstructor, parameters.ToLocation(), check.Name));
+            return;
+        }
+
+        if (check.Complaint is { } complaint)
+        {
+            production.ReportDiagnostic(Diagnostic.Create(
+                TypedIdDiagnostics.InvalidPrefix,
+                check.PrefixLocation.ToLocation(),
+                Printable(check.Prefix),
+                check.Name,
+                complaint));
+        }
+    }
+
+    /// <summary>The word for a declaration shape the generator cannot write a partial part of.</summary>
+    private static string? Unsupported(SelfCheck check) =>
+        check.IsGeneric ? "generic"
+            : check.IsRefLike ? "a ref struct"
+            : check.IsFileLocal ? "file-local"
+            : null;
+
+    /// <summary>Settles the one rule no single declaration can answer: who owns a prefix.</summary>
+    private static void ReportDuplicates(SourceProductionContext production, ImmutableArray<Claim> claims)
+    {
+        var owners = new Dictionary<string, Claim>(StringComparer.Ordinal);
+
+        // Source order, so the error lands on the later declaration and points back at the first,
+        // the way CS0101 does. Path and span are not a total order on their own, so namespace and
+        // name settle the rest and keep the choice the same between builds.
+        foreach (var claim in claims
+                     .Where(claim => claim.IsValid)
+                     .OrderBy(claim => claim.Location.FilePath, StringComparer.Ordinal)
+                     .ThenBy(claim => claim.Location.Span.Start)
+                     .ThenBy(claim => claim.Namespace ?? string.Empty, StringComparer.Ordinal)
+                     .ThenBy(claim => claim.Name, StringComparer.Ordinal))
+        {
+            production.CancellationToken.ThrowIfCancellationRequested();
+
+            if (owners.TryGetValue(claim.Prefix, out var owner))
             {
                 production.ReportDiagnostic(Diagnostic.Create(
-                    TypedIdDiagnostics.Nested, id.Location.ToLocation(), id.Name));
+                    TypedIdDiagnostics.DuplicatePrefix,
+                    claim.PrefixLocation.ToLocation(),
+                    additionalLocations: [owner.PrefixLocation.ToLocation()],
+                    messageArgs: [owner.Name, claim.Name, claim.Prefix]));
                 continue;
             }
 
-            if (!id.IsPartial)
-            {
-                production.ReportDiagnostic(Diagnostic.Create(
-                    TypedIdDiagnostics.NotPartial, id.Location.ToLocation(), id.Name));
-                continue;
-            }
-
-            if (Explain(id) is { } complaint)
-            {
-                production.ReportDiagnostic(Diagnostic.Create(
-                    TypedIdDiagnostics.InvalidPrefix, id.Location.ToLocation(), id.Prefix, id.Name, complaint));
-                continue;
-            }
-
-            // A prefix names the entity, so two of them naming the same one is never intended.
-            if (owners.TryGetValue(id.Prefix, out var owner))
-            {
-                production.ReportDiagnostic(Diagnostic.Create(
-                    TypedIdDiagnostics.DuplicatePrefix, id.Location.ToLocation(), owner.Name, id.Name, id.Prefix));
-                continue;
-            }
-
-            owners.Add(id.Prefix, id);
-
-            production.AddSource(id.HintName, SourceText.From(Write(id), Encoding.UTF8));
+            owners.Add(claim.Prefix, claim);
         }
     }
 
     /// <summary>Says what is wrong with a prefix, or nothing when it holds up.</summary>
-    private static string? Explain(TypedId id)
+    private static string? Explain(string prefix, bool extended)
     {
-        var maxLength = id.UsesExtendedPrefix ? MaxExtendedPrefixLength : MaxPrefixLength;
+        var maxLength = extended ? MaxExtendedPrefixLength : MaxPrefixLength;
 
-        if (id.Prefix.Length == 0)
+        if (prefix.Length == 0)
         {
             return $"is empty. A prefix is one to {maxLength} lowercase ASCII letters";
         }
 
-        if (id.Prefix.Length > maxLength)
+        if (prefix.Length > maxLength)
         {
-            return id.UsesExtendedPrefix
-                ? $"is {id.Prefix.Length} characters long, and even an extended prefix stops at {MaxExtendedPrefixLength}"
-                : $"is {id.Prefix.Length} characters long, and a prefix stops at {MaxPrefixLength}. " +
-                  "Set UsesExtendedPrefix on the attribute to allow up to " + MaxExtendedPrefixLength;
+            return extended
+                ? $"is {prefix.Length} characters long, and even an extended prefix stops at {MaxExtendedPrefixLength}"
+                : $"is {prefix.Length} characters long, and a prefix stops at {MaxPrefixLength}. " +
+                  $"Set UsesExtendedPrefix on the attribute to allow up to {MaxExtendedPrefixLength}";
         }
 
-        foreach (var character in id.Prefix)
+        foreach (var character in prefix)
         {
             if (character is < 'a' or > 'z')
             {
-                return $"holds '{character}'. A prefix is lowercase ASCII letters only, so that an id " +
+                return $"holds {Printable(character)}. A prefix is lowercase ASCII letters only, so that an id " +
                        "has exactly one textual form and '_' stays unambiguous as the separator";
             }
         }
@@ -162,84 +366,154 @@ public sealed class TypedIdGenerator : IIncrementalGenerator
     }
 
     /// <summary>Writes the id out, fully qualified so nothing in the file can be shadowed.</summary>
-    private static string Write(TypedId id)
+    private static string Write(Shape id)
     {
-        var source = new StringBuilder();
-        var indent = id.Namespace is null ? string.Empty : "    ";
-
-        source.AppendLine("// <auto-generated/>");
-        source.AppendLine("#nullable enable");
-        source.AppendLine();
-
-        if (id.Namespace is not null)
-        {
-            source.AppendLine($"namespace {id.Namespace}");
-            source.AppendLine("{");
-        }
-
+        var name = Escape(id.Name);
         var kind = id.IsRecord ? "record struct" : "struct";
         var modifiers = id.IsReadOnly ? $"{id.Accessibility} readonly partial" : $"{id.Accessibility} partial";
 
-        source.AppendLine($"{indent}{modifiers} {kind} {id.Name} : global::i26.Core.Ids.ITypedId<{id.Name}>");
-        source.AppendLine($"{indent}{{");
-        source.AppendLine($"{indent}    /// <summary>The prefix every {id.Name} carries.</summary>");
-        source.AppendLine($"{indent}    public static string Prefix => \"{id.Prefix}\";");
+        // Both holes carry their own line breaks and indentation: a hole is inserted verbatim, not
+        // re-indented, and when it is empty it has to leave no trace.
+        var declaredNamespace = id.Namespace is null ? string.Empty : $"namespace {id.Namespace};\n\n";
 
-        if (id.UsesExtendedPrefix)
-        {
-            source.AppendLine();
-            source.AppendLine($"{indent}    /// <summary>This id carries a prefix longer than three characters.</summary>");
-            source.AppendLine($"{indent}    public static bool UsesExtendedPrefix => true;");
-        }
+        var extendedPrefix = id.UsesExtendedPrefix
+            ? "\n\n    /// <summary>Allows a prefix of up to ten characters instead of three.</summary>"
+              + "\n    public static bool UsesExtendedPrefix => true;"
+            : string.Empty;
 
-        source.AppendLine();
-        source.AppendLine($"{indent}    /// <summary>Creates the id around the UUIDv7 it wraps.</summary>");
-        source.AppendLine($"{indent}    public {id.Name}(global::System.Guid value) => Value = value;");
-        source.AppendLine();
-        source.AppendLine($"{indent}    /// <summary>The UUIDv7 behind the id.</summary>");
-        source.AppendLine($"{indent}    public global::System.Guid Value {{ get; init; }}");
-        source.AppendLine();
-        source.AppendLine($"{indent}    /// <summary>Creates a new {id.Name}.</summary>");
-        source.AppendLine($"{indent}    public static {id.Name} New() => global::i26.Core.Ids.TypedId.New<{id.Name}>();");
-        source.AppendLine();
-        source.AppendLine($"{indent}    /// <summary>Creates the id from the UUIDv7 it wraps.</summary>");
-        source.AppendLine($"{indent}    public static {id.Name} FromGuid(global::System.Guid value) => new {id.Name}(value);");
-        source.AppendLine();
-        source.AppendLine($"{indent}    /// <summary>The id as {id.Prefix}_ followed by its encoded suffix.</summary>");
-        source.AppendLine($"{indent}    public override string ToString() => global::i26.Core.Ids.TypedId.Format(this);");
-        source.AppendLine();
-        source.AppendLine($"{indent}    /// <summary>Reads an id back from its textual form.</summary>");
-        source.AppendLine($"{indent}    public static {id.Name} Parse(string s, global::System.IFormatProvider? provider = null)");
-        source.AppendLine($"{indent}        => global::i26.Core.Ids.TypedId.Parse<{id.Name}>(s);");
-        source.AppendLine();
-        source.AppendLine($"{indent}    /// <summary>Tries to read an id back from its textual form.</summary>");
-        source.AppendLine($"{indent}    public static bool TryParse(string? s, global::System.IFormatProvider? provider, out {id.Name} result)");
-        source.AppendLine($"{indent}        => global::i26.Core.Ids.TypedId.TryParse(s, out result);");
-        source.AppendLine($"{indent}}}");
+        var source = $$"""
+            // <auto-generated/>
+            #nullable enable
 
-        if (id.Namespace is not null)
-        {
-            source.AppendLine("}");
-        }
+            {{declaredNamespace}}{{modifiers}} {{kind}} {{name}} : {{IdInterface}}<{{name}}>
+            {
+                /// <summary>The prefix every {{id.Name}} carries.</summary>
+                public static string Prefix => "{{id.Prefix}}";{{extendedPrefix}}
 
-        return source.ToString();
+                /// <summary>Creates the id around the UUIDv7 it wraps.</summary>
+                public {{name}}({{GuidType}} value) => Value = value;
+
+                /// <summary>The UUIDv7 behind the id.</summary>
+                public {{GuidType}} Value { get; init; }
+
+                /// <summary>Creates a new {{id.Name}}.</summary>
+                public static {{name}} New() => {{Runtime}}.New<{{name}}>();
+
+                /// <summary>Creates the id from the UUIDv7 it wraps.</summary>
+                public static {{name}} FromGuid({{GuidType}} value) => new {{name}}(value);
+
+                /// <summary>The id as {{id.Prefix}}_ followed by its encoded suffix.</summary>
+                public override string ToString() => {{Runtime}}.Format(this);
+
+                /// <summary>Reads an id back from its textual form.</summary>
+                public static {{name}} Parse(string s, {{FormatProviderType}}? provider = null)
+                    => {{Runtime}}.Parse<{{name}}>(s);
+
+                /// <summary>Tries to read an id back from its textual form.</summary>
+                public static bool TryParse(string? s, {{FormatProviderType}}? provider, out {{name}} result)
+                    => {{Runtime}}.TryParse(s, out result);
+            }
+
+            """;
+
+        // A raw string literal carries the line endings of this file, and AppendLine carried the
+        // build machine's. Neither is a decision, so the result is normalised and a Windows build
+        // and a Linux build write the same bytes.
+        return source.Replace("\r\n", "\n");
     }
 
-    /// <summary>One attributed declaration, reduced to what the generator needs and can compare.</summary>
-    private sealed record TypedId(
+    /// <summary>The identifier as it has to be written down: a keyword name carries its '@'.</summary>
+    /// <remarks>
+    /// The namespace arrives escaped already, because <c>ToDisplayString</c> does it;
+    /// <c>INamedTypeSymbol.Name</c> does not, so a type named <c>record</c> would emit source that
+    /// does not parse.
+    /// </remarks>
+    private static string Escape(string identifier) =>
+        SyntaxFacts.GetKeywordKind(identifier) == SyntaxKind.None
+        && SyntaxFacts.GetContextualKeywordKind(identifier) == SyntaxKind.None
+            ? identifier
+            : "@" + identifier;
+
+    /// <summary>
+    /// A hint name is a file name to Roslyn, which rejects anything it would not open — and a
+    /// namespace display string keeps the '@' of an escaped identifier.
+    /// </summary>
+    private static string Sanitize(string value)
+    {
+        var safe = new StringBuilder(value.Length);
+
+        foreach (var character in value)
+        {
+            safe.Append(char.IsLetterOrDigit(character) || character is '.' or '_' or '-' ? character : '_');
+        }
+
+        return safe.ToString();
+    }
+
+    /// <summary>A character as it can safely be written into a diagnostic.</summary>
+    private static string Printable(char character) =>
+        character is >= ' ' and <= '~' ? $"'{character}'" : $"U+{(int)character:X4}";
+
+    /// <summary>
+    /// A prefix as it can safely be written into a diagnostic: a tab would be pasted straight into
+    /// the message, and a line break would cut it in half in a build log.
+    /// </summary>
+    private static string Printable(string value)
+    {
+        var safe = new StringBuilder(value.Length);
+
+        foreach (var character in value)
+        {
+            safe.Append(character is >= ' ' and <= '~'
+                ? character.ToString()
+                : $"<U+{(int)character:X4}>");
+        }
+
+        return safe.ToString();
+    }
+
+    /// <summary>One typed id, projected into the three things the pipeline does with it.</summary>
+    private sealed record TypedId(Shape Shape, SelfCheck SelfCheck, Claim Claim);
+
+    /// <summary>
+    /// Everything <see cref="Write"/> reads, and nothing else. No location, so a comment added above
+    /// the declaration leaves this equal and the file is not written again.
+    /// </summary>
+    private sealed record Shape(
         string Name,
         string? Namespace,
         string Accessibility,
         string Prefix,
         bool UsesExtendedPrefix,
-        bool IsPartial,
         bool IsReadOnly,
         bool IsRecord,
-        bool IsNested,
-        LocationInfo Location)
+        bool IsEmittable)
     {
-        internal string HintName => Namespace is null ? $"{Name}.g.cs" : $"{Namespace}.{Name}.g.cs";
+        internal string HintName => Sanitize(Namespace is null ? Name : $"{Namespace}.{Name}") + ".g.cs";
     }
+
+    /// <summary>What one declaration can be judged on without seeing any other.</summary>
+    private sealed record SelfCheck(
+        string Name,
+        string Prefix,
+        bool IsPartial,
+        bool IsNested,
+        bool IsGeneric,
+        bool IsFileLocal,
+        bool IsRefLike,
+        string? Complaint,
+        LocationInfo Location,
+        LocationInfo PrefixLocation,
+        LocationInfo? ParameterListLocation);
+
+    /// <summary>A claim on a prefix, which only the whole compilation can settle.</summary>
+    private sealed record Claim(
+        string Name,
+        string? Namespace,
+        string Prefix,
+        bool IsValid,
+        LocationInfo Location,
+        LocationInfo PrefixLocation);
 
     /// <summary>
     /// A location the pipeline can compare. <see cref="Location"/> itself holds on to the syntax

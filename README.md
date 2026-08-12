@@ -120,6 +120,8 @@ runtime ones:
 | `I26ID002` | the prefix is empty, uppercase, or longer than the rule allows |
 | `I26ID003` | two ids declare the same prefix — the one mistake no per-type check can catch |
 | `I26ID004` | the type is nested inside another |
+| `I26ID005` | the type is generic, `file`-local or a `ref struct`, so the members would land elsewhere |
+| `I26ID006` | the type declares a primary constructor, which the generator already writes |
 
 <details>
 <summary>The same id written by hand</summary>
@@ -816,7 +818,8 @@ Every push and pull request runs the same three gates on Ubuntu and on Windows: 
 with warnings as errors, the tests on each of the three target frameworks, and a formatting check.
 Packages are built and attached to the run so a branch can be tried out before it is released.
 
-353 tests run against all three target frameworks. The Entity Framework tests execute against an
+392 tests run against all three target frameworks, except the generator's own, which run once
+because a generator lives inside the compiler rather than on a target runtime. The Entity Framework tests execute against an
 in-memory SQLite database, including the DDL with the `"C"` collation, and the paging tests walk
 every page of a seeded table on both the Entity Framework and the Dapper side, checking that no row
 is repeated or skipped; the ASP.NET Core tests build a real host and read back the routes and the

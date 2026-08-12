@@ -26,6 +26,11 @@
                           PrivateAssets="all" ExcludeAssets="runtime" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- The tracking names and the prefix constants, which the tests assert against. -->
+        <InternalsVisibleTo Include="i26.Core.Generators.Tests" />
+    </ItemGroup>
+
     <!--
         AnalyzerReleases.Shipped.md and AnalyzerReleases.Unshipped.md track the rules this analyzer
         reports, so adding or changing one is a deliberate edit. The analyzer SDK picks both up on

@@ -82,7 +82,11 @@ The pass that established this took the source from 41% documentation to 25%.
   members. The hand-written shape stays valid and the two are interchangeable — every test in
   `GeneratedIdTests` would pass against either.
 - **The prefix rules exist twice**: in `TypedIdPrefix` and in the generator, which targets
-  netstandard2.0 and cannot reference the library it generates for. Change one, change the other.
+  netstandard2.0 and cannot reference the library it generates for. `PrefixRuleTests` fails when
+  the two drift.
+- **Diagnostic titles and messages are ASCII.** They travel through build logs and terminals of
+  unknown encoding, and one of them already lost a character to a round trip through a cp1252 tool.
+  `PrefixRuleTests` asserts it.
 - **Tests run against real infrastructure** — SQLite in memory for EF Core and Dapper, a real
   `WebApplication` for ASP.NET — not mocks. A test that only proves the mock was called proves nothing.
 - **Test names are sentences**: `Rows_sharing_an_instant_are_still_cut_cleanly`.
@@ -129,6 +133,16 @@ file from the shell.
 predicate that only looks for the latter silently skips every record struct, and the build still
 succeeds — an attributed partial struct with no members is valid C#. Match on
 `TypeDeclarationSyntax`, and write tests that *use* the generated members rather than only compiling.
+
+**The generator's pipeline is three output nodes, not one.** Two are per id and stay incremental;
+only the duplicate-prefix rule pays for a `Collect()`, and only diagnostics come out of it. Keep
+`Location` out of the shape the emission is keyed on, or a comment typed above a declaration
+rewrites the file. `i26.Core.Generators.Tests` pins both with `trackIncrementalGeneratorSteps`.
+
+**One attribute application per type, not one per declaration.** A type attributed on two partial
+parts arrives twice, and writing the same hint name twice throws out of `AddSource` and discards
+every generated id in the compilation. Dedupe over attribute applications — deduping over declaring
+parts silently drops a type whose attribute sits on the part that does not sort first.
 
 **C# 14 extension blocks compile but Rider 2025.2.x does not parse them** — it reads
 `extension(Foo f)` as a constructor and reports an error on a static class. The classic `this`
