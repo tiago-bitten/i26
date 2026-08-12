@@ -5,26 +5,13 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace i26.AspNetCore.Endpoints;
 
-/// <summary>
-/// Discovery and mapping of the <see cref="IEndpoint"/> implementations of an application.
-/// </summary>
+/// <summary>Discovery and mapping of the <see cref="IEndpoint"/> implementations of an application.</summary>
 public static class EndpointExtensions
 {
-    /// <summary>
-    /// Registers every concrete <see cref="IEndpoint"/> found in the given assemblies.
-    /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="assemblies">Assemblies to scan; usually the one holding the endpoints.</param>
-    /// <returns>The same <paramref name="services"/>, for chaining.</returns>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="services"/> or <paramref name="assemblies"/> is <see langword="null"/>.
-    /// </exception>
+    /// <summary>Registers every concrete <see cref="IEndpoint"/> found in the given assemblies, transient.</summary>
     /// <remarks>
-    /// Abstract types, interfaces and open generics are skipped. Calling this twice for the same
-    /// assembly is harmless: each implementation is registered once.
-    /// <code>
-    /// builder.Services.AddEndpoints(Assembly.GetExecutingAssembly());
-    /// </code>
+    /// Abstract types, interfaces and open generics are skipped, and scanning the same assembly
+    /// twice is harmless.
     /// </remarks>
     public static IServiceCollection AddEndpoints(this IServiceCollection services, params Assembly[] assemblies)
     {
@@ -47,27 +34,13 @@ public static class EndpointExtensions
     }
 
     /// <summary>
-    /// Maps every registered <see cref="IEndpoint"/> onto the given builder.
+    /// Maps every registered <see cref="IEndpoint"/> onto the application, or onto the group this is
+    /// called on, whose prefix and conventions they then inherit.
     /// </summary>
-    /// <param name="builder">
-    /// Where to map: the application, or a route group, in which case every endpoint inherits the
-    /// group's prefix and conventions.
-    /// </param>
-    /// <returns>The same <paramref name="builder"/>, for chaining.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">
-    /// No <see cref="IEndpoint"/> is registered, which means
-    /// <see cref="AddEndpoints"/> was never called — mapping nothing is never what was meant.
+    /// Nothing is registered, which means <see cref="AddEndpoints"/> was never called. Mapping no
+    /// routes at all is never what was meant.
     /// </exception>
-    /// <remarks>
-    /// <code>
-    /// var api = app.MapGroup("v{version:apiVersion}")
-    ///     .WithApiVersionSet(versionSet)
-    ///     .RequireRateLimiting(RateLimits.PerUser);
-    ///
-    /// api.MapEndpoints();
-    /// </code>
-    /// </remarks>
     public static IEndpointRouteBuilder MapEndpoints(this IEndpointRouteBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

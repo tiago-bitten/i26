@@ -3,19 +3,10 @@ using System.Text;
 
 namespace i26.Core.Pagination;
 
-/// <summary>
-/// Encodes and decodes the opaque marker a client sends back to ask for the next page.
-/// </summary>
+/// <summary>The opaque marker a client sends back to ask for the next page.</summary>
 /// <remarks>
-/// <para>
-/// A cursor is where the last page stopped, not how far it got. That is what lets the next page be
-/// an index seek — <c>WHERE (createdAt, id) &lt; (…)</c> — instead of an <c>OFFSET</c> that walks
-/// every row it skips and shifts under inserts.
-/// </para>
-/// <para>
-/// The text is base64url, so it survives a query string without escaping. Decoding also accepts
-/// plain base64, in case a cursor was handed out before.
-/// </para>
+/// It says where the last page stopped, not how far it got, which is what makes the next page an
+/// index seek instead of an <c>OFFSET</c>. Base64url, so a query string cannot mangle it.
 /// </remarks>
 public static class Cursor
 {
@@ -25,10 +16,7 @@ public static class Cursor
     /// <summary>Width of a <see cref="Guid"/> in <c>D</c> format.</summary>
     private const int GuidLength = 36;
 
-    /// <summary>Encodes the position of a row ordered by creation instant.</summary>
-    /// <param name="createdAt">The instant of the last row of the page.</param>
-    /// <param name="id">The id of the last row of the page.</param>
-    /// <returns>The cursor.</returns>
+    /// <summary>Encodes the position of the last row of a page ordered by creation instant.</summary>
     public static string Encode(DateTimeOffset createdAt, Guid id)
     {
         var payload = string.Create(
@@ -38,11 +26,7 @@ public static class Cursor
         return ToBase64Url(payload);
     }
 
-    /// <summary>Reads back a cursor written by <see cref="Encode"/>.</summary>
-    /// <param name="cursor">The cursor to read.</param>
-    /// <param name="createdAt">The instant it points at.</param>
-    /// <param name="id">The id it points at.</param>
-    /// <returns><see langword="true"/> when the cursor could be read.</returns>
+    /// <summary>Reads back a cursor written by <see cref="Encode"/>. Plain base64 is accepted too.</summary>
     public static bool TryDecode(string? cursor, out DateTimeOffset createdAt, out Guid id)
     {
         createdAt = default;
@@ -78,14 +62,10 @@ public static class Cursor
         return true;
     }
 
-    /// <summary>Encodes the position of a row ordered by an arbitrary key.</summary>
-    /// <param name="sortKey">The value of the key on the last row of the page — a name, a title.</param>
-    /// <param name="id">The id of the last row of the page.</param>
-    /// <returns>The cursor.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="sortKey"/> is <see langword="null"/>.</exception>
+    /// <summary>Encodes the position of a row ordered by an arbitrary key — a name, a title.</summary>
     /// <remarks>
-    /// The id goes first, at its fixed width of 36 characters, and the key takes the rest. There is
-    /// no separator because there is no character a sort key is guaranteed not to contain.
+    /// The id goes first at its fixed width of 36 characters and the key takes the rest, because
+    /// there is no character a sort key is guaranteed not to contain.
     /// </remarks>
     public static string EncodeKeyed(string sortKey, Guid id)
     {
@@ -95,10 +75,6 @@ public static class Cursor
     }
 
     /// <summary>Reads back a cursor written by <see cref="EncodeKeyed"/>.</summary>
-    /// <param name="cursor">The cursor to read.</param>
-    /// <param name="sortKey">The key it points at.</param>
-    /// <param name="id">The id it points at.</param>
-    /// <returns><see langword="true"/> when the cursor could be read.</returns>
     public static bool TryDecodeKeyed(string? cursor, out string sortKey, out Guid id)
     {
         sortKey = string.Empty;

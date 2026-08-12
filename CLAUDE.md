@@ -39,7 +39,7 @@ NuGet advisory against anything referenced — which is why Dependabot keeps the
 
 - **English everywhere** — code, comments, XML docs, test names, commit messages.
 - **XML docs on every public member.** `GenerateDocumentationFile` is on and warnings are errors, so
-  a missing `<summary>` fails the build.
+  a missing `<summary>` fails the build. Keep them short — the rules below.
 - **`i26.Core` has no external dependencies.** Never add a `PackageReference` to it. Anything needing
   one goes in the package named after that dependency.
 - **New code must compile on net8.0.** Guard anything newer with `#if NET9_0_OR_GREATER`, as
@@ -51,6 +51,23 @@ NuGet advisory against anything referenced — which is why Dependabot keeps the
   see `CursorSqlColumn`.
 - **Line endings are LF**, fixed by `.gitattributes` and `.editorconfig`. CRLF in a file makes the
   formatting gate fail on Linux.
+
+## Writing the docs
+
+They show up in a tooltip, one member at a time. A paragraph of rationale there is noise; the same
+paragraph in the README is documentation.
+
+- **`<summary>` is one sentence** saying what the member does. Not why, not how.
+- **`<remarks>` only when it changes how you call it** — an ordering guarantee, "call this once at
+  startup", "off by default because". Two lines at most. Never a tutorial.
+- **`<param>` and `<returns>` only when the name does not already say it.** Watch out: they are
+  all-or-nothing per member. Document one parameter and CS1573 demands the rest.
+- **`<exception>` only for what the caller decides on.** `ArgumentNullException` on a null argument
+  is not news.
+- **The reasoning goes in a `//` comment in the body**, where it reaches whoever is changing the
+  code and nobody else. Examples go in the README, once.
+
+The pass that established this took the source from 41% documentation to 25%.
 
 ## Conventions
 

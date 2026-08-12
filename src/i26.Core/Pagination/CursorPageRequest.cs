@@ -1,17 +1,7 @@
 namespace i26.Core.Pagination;
 
-/// <summary>
-/// What a caller asks for: how many rows, and where the last page stopped.
-/// </summary>
-/// <remarks>
-/// Meant to be inherited by the query that needs paging, so the two travel together:
-/// <code>
-/// public sealed record GetCoursesQuery : CursorPageRequest, IQuery&lt;PagedResponse&lt;CourseItem&gt;&gt;
-/// {
-///     public string? Search { get; init; }
-/// }
-/// </code>
-/// </remarks>
+/// <summary>What a caller asks for: how many rows, and where the last page stopped.</summary>
+/// <remarks>Meant to be inherited by the query that needs paging, so the two travel together.</remarks>
 public record CursorPageRequest
 {
     /// <summary>Rows per page when the caller does not say.</summary>
@@ -23,27 +13,20 @@ public record CursorPageRequest
     /// <summary>How many rows to return.</summary>
     public int Limit { get; init; } = DefaultLimit;
 
-    /// <summary>Where the last page stopped; <see langword="null"/> for the first one.</summary>
+    /// <summary>Where the last page stopped; null for the first one.</summary>
     public string? Cursor { get; init; }
 
-    /// <summary>
-    /// Whether to also count every row the query matches.
-    /// </summary>
+    /// <summary>Whether to also count every row the query matches.</summary>
     /// <remarks>
-    /// Off by default, and worth leaving off. The count is a second query over the whole matching
-    /// set — on a large table it costs more than the page itself, and it is the reason offset
-    /// pagination is slow in the first place. Turn it on for the screens that actually show a total.
+    /// Off by default, and worth leaving off: the count is a second query over the whole matching
+    /// set, which is the cost cursor paging exists to avoid.
     /// </remarks>
     public bool IncludeTotal { get; init; }
 
-    /// <summary>Brings <see cref="Limit"/> back into range.</summary>
-    /// <param name="maxLimit">The ceiling to apply.</param>
-    /// <returns>This request, or a copy with a usable limit.</returns>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxLimit"/> is not positive.</exception>
+    /// <summary>Brings <see cref="Limit"/> into <c>[1, maxLimit]</c>.</summary>
     /// <remarks>
-    /// Clamped rather than refused: a caller asking for a thousand rows wants as many as it can
-    /// have, and a page size is not worth a failed request. The ceiling is what keeps one caller
-    /// from asking the database for everything.
+    /// Clamped rather than refused: a page size is not worth a failed request, and the ceiling is
+    /// what keeps one caller from asking the database for everything.
     /// </remarks>
     public CursorPageRequest Normalize(int maxLimit = DefaultMaxLimit)
     {

@@ -1,21 +1,13 @@
 namespace i26.Core.Results;
 
 /// <summary>
-/// Kind of failure an <see cref="Error"/> represents. It is what decides the HTTP status code at
-/// the transport boundary, so the application layer never has to know about HTTP.
+/// Kind of failure an <see cref="Error"/> represents, and what decides its HTTP status, so the
+/// application layer never mentions HTTP.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The first six members are the ones business rules reach for day to day. The rest exist so an
-/// adapter can relay an exact status — a gateway propagating an upstream <c>429</c> or <c>502</c>,
-/// a rate limiter, a payment wall — without inventing a mapping of its own.
-/// </para>
-/// <para>
-/// The numeric values are explicit and stable: they are part of the contract for anything that
-/// persists or serializes an error type. Append new members, never renumber the existing ones.
-/// The values are ordinals, not status codes, because <see cref="Validation"/> and
-/// <see cref="Problem"/> are distinct kinds that share status 400.
-/// </para>
+/// The first six carry the day; the rest let an adapter relay an exact status without inventing a
+/// mapping. The numeric values are ordinals, not statuses, and they are part of the contract:
+/// append, never renumber.
 /// </remarks>
 public enum ErrorType
 {

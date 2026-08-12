@@ -7,22 +7,15 @@ namespace i26.AspNetCore.Results;
 /// Turns a failed <see cref="Result"/> into an RFC 9457 <c>application/problem+json</c> response.
 /// </summary>
 /// <remarks>
-/// Written to be usable as a method group, which is what keeps the endpoint down to one line:
-/// <code>
-/// var result = await handler.HandleAsync(command, ct);
-/// return result.Match(Results.Ok, ProblemResults.Problem);
-/// </code>
-/// The description is resolved when the response is executed, from the
-/// <see cref="IErrorTranslator"/> registered in the request's services — so there is no static
-/// state to configure and nothing to inject into the endpoint.
+/// Usable as a method group, so an endpoint ends in
+/// <c>result.Match(Results.Ok, ProblemResults.Problem)</c>. The description is resolved when the
+/// response executes, from the <see cref="IErrorTranslator"/> in the request's services — no static
+/// state, nothing to inject into the endpoint.
 /// </remarks>
 public static class ProblemResults
 {
     /// <summary>Builds the problem response for a failed result.</summary>
-    /// <param name="result">The failed result.</param>
-    /// <returns>An <see cref="IResult"/> that writes the problem details.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="result"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="result"/> is a success.</exception>
+    /// <exception cref="InvalidOperationException">The result is a success.</exception>
     public static IResult Problem(Result result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -37,9 +30,6 @@ public static class ProblemResults
     }
 
     /// <summary>Builds the problem response for an error.</summary>
-    /// <param name="error">The failure to describe.</param>
-    /// <returns>An <see cref="IResult"/> that writes the problem details.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="error"/> is <see langword="null"/>.</exception>
     public static IResult Problem(Error error)
     {
         ArgumentNullException.ThrowIfNull(error);
@@ -47,18 +37,13 @@ public static class ProblemResults
         return new ProblemResult(error);
     }
 
-    /// <summary>The specification section defining a status code.</summary>
-    /// <param name="statusCode">The HTTP status code.</param>
-    /// <returns>
-    /// The URI used as the <c>type</c> member of the problem details, or <see langword="null"/> for
-    /// a status with no definition to point at — in which case the member is left out and the
-    /// client falls back to <c>about:blank</c>, as RFC 9457 prescribes.
-    /// </returns>
+    /// <summary>
+    /// The specification section defining a status code, used as the <c>type</c> member. Null for a
+    /// status with nothing to point at, which leaves the member out.
+    /// </summary>
     /// <remarks>
-    /// Keyed by status code rather than by <see cref="ErrorType"/>: the status is what the
-    /// specification section actually describes, and it keeps this from becoming a second copy of
-    /// the mapping in <see cref="Error.StatusCode"/>. Most codes live in RFC 9110; the ones that do
-    /// not point at the RFC that introduced them.
+    /// Keyed by status rather than by <see cref="ErrorType"/>, so this does not become a second copy
+    /// of the mapping in <see cref="Error.StatusCode"/>.
     /// </remarks>
     public static string? GetTypeUri(int statusCode) => statusCode switch
     {

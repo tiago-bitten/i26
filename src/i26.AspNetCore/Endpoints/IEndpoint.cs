@@ -2,47 +2,14 @@ using Microsoft.AspNetCore.Routing;
 
 namespace i26.AspNetCore.Endpoints;
 
-/// <summary>
-/// One endpoint, declaring its own route. Implementations are discovered by
-/// <see cref="EndpointExtensions.AddEndpoints"/> and mapped by
-/// <see cref="EndpointExtensions.MapEndpoints"/>.
-/// </summary>
+/// <summary>One endpoint, declaring its own route next to its handler.</summary>
 /// <remarks>
-/// <para>
-/// It keeps the route, the handler and everything the route needs — authorization, tags, rate
-/// limit — in the same file, instead of piling every <c>MapGet</c> in the world into
-/// <c>Program.cs</c>:
-/// </para>
-/// <code>
-/// internal sealed class GetCourse : IEndpoint
-/// {
-///     public void MapEndpoint(IEndpointRouteBuilder app)
-///     {
-///         app.MapGet("courses/{id}", async (
-///                 [FromRoute] CourseId id,
-///                 [FromServices] IQueryHandler&lt;GetCourseQuery, CourseResponse&gt; handler,
-///                 CancellationToken ct) =>
-///             {
-///                 var result = await handler.HandleAsync(new GetCourseQuery(id), ct);
-///
-///                 return result.Match(Results.Ok, ProblemResults.Problem);
-///             })
-///             .RequireAuthorization()
-///             .WithTags("Courses");
-///     }
-/// }
-/// </code>
-/// <para>
-/// Implementations are resolved from the container, so they can take constructor dependencies —
-/// though needing one usually means the dependency belongs in the handler instead.
-/// </para>
+/// Found by <see cref="EndpointExtensions.AddEndpoints"/> and mapped by
+/// <see cref="EndpointExtensions.MapEndpoints"/>. Implementations come out of the container, so they
+/// can take constructor dependencies.
 /// </remarks>
 public interface IEndpoint
 {
-    /// <summary>Declares the route on the given builder.</summary>
-    /// <param name="app">
-    /// Where the route is mapped — the application itself, or the group
-    /// <see cref="EndpointExtensions.MapEndpoints"/> was called on.
-    /// </param>
+    /// <summary>Declares the route on the application, or on the group it was mapped into.</summary>
     void MapEndpoint(IEndpointRouteBuilder app);
 }

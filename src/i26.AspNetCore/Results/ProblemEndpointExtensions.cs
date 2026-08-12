@@ -5,24 +5,10 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace i26.AspNetCore.Results;
 
-/// <summary>
-/// Declares, in the API description, the problem responses an endpoint can answer with.
-/// </summary>
+/// <summary>Declares, in the API description, the problem responses an endpoint can answer with.</summary>
 /// <remarks>
-/// <para>
-/// It closes the loop with the result pattern: the handler already says which errors it can return,
-/// and this puts the same statuses in the OpenAPI document, so the client sees them without anyone
-/// hand-writing <c>ProducesProblem(404)</c> and letting it rot.
-/// </para>
-/// <code>
-/// app.MapPost("courses/{id}/publish", Handle)
-///     .ProducesProblem(CourseErrors.NotFound, CourseErrors.AlreadyPublished);
-/// </code>
-/// <para>
-/// Statuses are deduplicated, so declaring two errors that share one — a
-/// <see cref="ErrorType.Validation"/> and a <see cref="ErrorType.Problem"/>, both 400 — produces a
-/// single response entry.
-/// </para>
+/// Taking the errors themselves keeps the OpenAPI document following the code, instead of a
+/// hand-written <c>ProducesProblem(404)</c> that rots. Statuses are deduplicated.
 /// </remarks>
 public static class ProblemEndpointExtensions
 {
@@ -30,14 +16,7 @@ public static class ProblemEndpointExtensions
     private static readonly string[] ProblemContentTypes = ["application/problem+json"];
 
     /// <summary>Declares the problem responses matching the given kinds of failure.</summary>
-    /// <typeparam name="TBuilder">The endpoint or group builder.</typeparam>
-    /// <param name="builder">What to declare the responses on.</param>
-    /// <param name="errorType">The kind of failure the endpoint can answer with.</param>
-    /// <param name="others">Any further kinds of failure.</param>
-    /// <returns>The same <paramref name="builder"/>, for chaining.</returns>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="builder"/> or <paramref name="others"/> is <see langword="null"/>.
-    /// </exception>
+    /// <remarks>Works on a route group as well as on a single endpoint.</remarks>
     public static TBuilder ProducesProblem<TBuilder>(
         this TBuilder builder,
         ErrorType errorType,
@@ -58,15 +37,9 @@ public static class ProblemEndpointExtensions
     }
 
     /// <summary>Declares the problem responses matching the given errors.</summary>
-    /// <typeparam name="TBuilder">The endpoint or group builder.</typeparam>
-    /// <param name="builder">What to declare the responses on.</param>
-    /// <param name="error">An error the endpoint can answer with.</param>
-    /// <param name="others">Any further errors.</param>
-    /// <returns>The same <paramref name="builder"/>, for chaining.</returns>
-    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
     /// <remarks>
-    /// The overload to reach for in practice: the endpoint names the very errors its handler
-    /// returns, straight from the <c>{Entity}Errors</c> class, instead of restating their statuses.
+    /// The one to reach for: the endpoint names the errors its handler returns, straight from the
+    /// <c>{Entity}Errors</c> class, instead of restating their statuses.
     /// </remarks>
     public static TBuilder ProducesProblem<TBuilder>(
         this TBuilder builder,
@@ -89,14 +62,9 @@ public static class ProblemEndpointExtensions
         return Declare(builder, statusCodes);
     }
 
-    /// <summary>
-    /// Adds one response entry per status.
-    /// </summary>
-    /// <remarks>
-    /// The declared payload is <see cref="ProblemDetails"/> even for a validation failure: what goes
-    /// out is a problem document with the individual errors in an <c>errors</c> extension, not the
-    /// <c>HttpValidationProblemDetails</c> shape of <c>ProducesValidationProblem</c>.
-    /// </remarks>
+    // One response entry per status. The payload is ProblemDetails even for a validation failure:
+    // what goes out is a problem document with the errors in an extension, not the
+    // HttpValidationProblemDetails shape of ProducesValidationProblem.
     private static TBuilder Declare<TBuilder>(TBuilder builder, SortedSet<int> statusCodes)
         where TBuilder : IEndpointConventionBuilder
     {

@@ -4,21 +4,8 @@ namespace i26.Core.Ids;
 /// Lowercase Crockford base32 encoding of 16 bytes into 26 characters, in the form used by TypeID.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The alphabet is <c>0123456789abcdefghjkmnpqrstvwxyz</c> — the ambiguous digits <c>i</c>,
-/// <c>l</c>, <c>o</c> and <c>u</c> are left out. Decoding is case-sensitive: only the lowercase
-/// form is accepted, so that every id has exactly one textual representation.
-/// </para>
-/// <para>
-/// 16 bytes are 128 bits and 26 characters carry 130 bits, so the first character carries only
-/// 3 bits (the 2 spare bits are leading zeros). In practice this means the first character of a
-/// valid sequence is always between <c>0</c> and <c>7</c>.
-/// </para>
-/// <para>
-/// The encoding is order preserving: comparing two encoded sequences as text (ordinal) yields the
-/// same result as comparing the original bytes in big-endian order, because the alphabet is in
-/// ascending ASCII order and every group has the same width.
-/// </para>
+/// Order preserving: comparing the text ordinally gives the same answer as comparing the bytes
+/// big-endian. Decoding is case-sensitive, so every id has exactly one textual form.
 /// </remarks>
 public static class CrockfordBase32
 {

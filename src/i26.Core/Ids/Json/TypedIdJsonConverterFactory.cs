@@ -4,33 +4,19 @@ using System.Text.Json.Serialization;
 namespace i26.Core.Ids.Json;
 
 /// <summary>
-/// JSON converter factory for any type implementing <see cref="ITypedId{TSelf}"/>. A single
-/// registration covers every typed id that exists today and every one added later.
+/// Serializes every typed id as its prefixed string. One registration covers the ones that exist
+/// and the ones added later.
 /// </summary>
 /// <remarks>
-/// <para>Registration:</para>
-/// <code>
-/// options.Converters.Add(new TypedIdJsonConverterFactory());
-/// </code>
-/// <para>
-/// Reflection only runs when the <see cref="JsonSerializerOptions"/> resolves the converter for a
-/// type (once per type, cached by System.Text.Json itself); serialization does not use reflection.
-/// </para>
+/// <c>options.Converters.Add(new TypedIdJsonConverterFactory())</c>. Reflection runs once per type,
+/// when the options resolve its converter; serializing does not use it.
 /// </remarks>
 public sealed class TypedIdJsonConverterFactory : JsonConverterFactory
 {
-    /// <summary>
-    /// Tells whether the type is a struct implementing <see cref="ITypedId{TSelf}"/> with itself as
-    /// the generic argument.
-    /// </summary>
-    /// <param name="typeToConvert">The candidate type.</param>
-    /// <returns><see langword="true"/> when it is a typed id.</returns>
+    /// <summary>Tells whether the type is a typed id.</summary>
     public override bool CanConvert(Type typeToConvert) => TypedId.IsTypedId(typeToConvert);
 
     /// <summary>Creates the converter for the given typed id.</summary>
-    /// <param name="typeToConvert">The id type.</param>
-    /// <param name="options">The serializer options in use.</param>
-    /// <returns>The matching converter.</returns>
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
         var converterType = typeof(TypedIdJsonConverter<>).MakeGenericType(typeToConvert);

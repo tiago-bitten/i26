@@ -3,46 +3,23 @@ using System.Runtime.ExceptionServices;
 
 namespace i26.Core.Ids;
 
-/// <summary>
-/// The rules a typed id prefix has to follow, and where they are checked.
-/// </summary>
+/// <summary>The rules a typed id prefix has to follow, and where they are checked.</summary>
 /// <remarks>
-/// <para>
-/// A prefix is up to three lowercase letters — <c>usr</c>, <c>ord</c>, <c>crs</c>. Short is the
-/// point: the prefix is repeated in every id, every log line and every URL, and three characters
-/// are enough to tell entities apart at a glance. Ids that need more say so out loud:
-/// </para>
-/// <code>
-/// public static string Prefix => "workspace";
-/// public static bool UsesExtendedPrefix => true;   // up to ten
-/// </code>
-/// <para>
-/// The check runs once per id type, the first time something formats or parses one of them. Call
-/// <see cref="Validate{TId}"/> at startup, or from a test, to find a bad prefix before a request
-/// does.
-/// </para>
+/// Up to three lowercase letters, because the prefix is repeated in every id, log line and URL. The
+/// check runs once per id type, the first time one is formatted or parsed.
 /// </remarks>
 public static class TypedIdPrefix
 {
     /// <summary>Longest prefix an id may have.</summary>
     public const int MaxLength = 3;
 
-    /// <summary>
-    /// Longest prefix an id that sets <see cref="ITypedId{TSelf}.UsesExtendedPrefix"/> may have.
-    /// </summary>
+    /// <summary>Longest prefix an id that opted into extended prefixes may have.</summary>
     public const int MaxExtendedLength = 10;
 
     /// <summary>Longest prefix allowed under one of the two rules.</summary>
-    /// <param name="extended">Whether the id opted into extended prefixes.</param>
-    /// <returns><see cref="MaxExtendedLength"/> when it did, <see cref="MaxLength"/> otherwise.</returns>
     public static int MaxLengthFor(bool extended) => extended ? MaxExtendedLength : MaxLength;
 
     /// <summary>Tells whether a prefix follows the rules.</summary>
-    /// <param name="prefix">The prefix to check.</param>
-    /// <param name="extended">Whether the id opted into extended prefixes.</param>
-    /// <returns>
-    /// <see langword="true"/> when it is one to <see cref="MaxLengthFor"/> lowercase ASCII letters.
-    /// </returns>
     public static bool IsValid(string? prefix, bool extended = false)
     {
         if (prefix is null || prefix.Length == 0 || prefix.Length > MaxLengthFor(extended))
@@ -62,40 +39,22 @@ public static class TypedIdPrefix
     }
 
     /// <summary>Checks the prefix of an id type, throwing when it breaks a rule.</summary>
-    /// <typeparam name="TId">The id type.</typeparam>
-    /// <returns>The prefix.</returns>
     /// <exception cref="InvalidOperationException">The prefix breaks one of the rules.</exception>
-    /// <remarks>
-    /// The result is remembered, so this costs one check per id type no matter how often it runs.
-    /// </remarks>
+    /// <remarks>Remembered, so it costs one check per id type however often it runs.</remarks>
     public static string Validate<TId>()
         where TId : struct, ITypedId<TId>
         => TypedIdPrefixCache<TId>.Value;
 
     /// <summary>
-    /// Checks every typed id in the given assemblies: each prefix follows the rules, and no two ids
+    /// Checks every typed id in the given assemblies: each prefix follows the rules, and no two
     /// share one.
     /// </summary>
-    /// <param name="assemblies">Assemblies to sweep.</param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="assemblies"/>, or one of them, is <see langword="null"/>.
-    /// </exception>
     /// <exception cref="InvalidOperationException">
     /// A prefix breaks a rule, or two ids declare the same one.
     /// </exception>
     /// <remarks>
-    /// <para>
-    /// Uniqueness cannot be checked one type at a time — nothing stops two entities from picking
-    /// <c>crs</c>, and the compiler has no reason to care. What breaks is the format itself: a
-    /// prefix names the entity, so once two share one, <c>crs_01h455…</c> no longer says which
-    /// entity it belongs to.
-    /// </para>
-    /// <para>One test in the project that declares the ids is enough to keep that from happening:</para>
-    /// <code>
-    /// [Fact]
-    /// public void Typed_id_prefixes_are_valid_and_unique()
-    ///     => TypedIdPrefix.ValidateAll(typeof(CourseId).Assembly);
-    /// </code>
+    /// Uniqueness is the part no per-type check can catch, so one test in the project that declares
+    /// the ids is worth having: <c>TypedIdPrefix.ValidateAll(typeof(CourseId).Assembly)</c>.
     /// </remarks>
     public static void ValidateAll(params Assembly[] assemblies)
     {
@@ -105,8 +64,6 @@ public static class TypedIdPrefix
     }
 
     /// <summary>Checks the given typed ids: each prefix follows the rules, and no two share one.</summary>
-    /// <param name="idTypes">The types to check.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="idTypes"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">One of the types is not a typed id.</exception>
     /// <exception cref="InvalidOperationException">
     /// A prefix breaks a rule, or two ids declare the same one.
@@ -143,7 +100,6 @@ public static class TypedIdPrefix
         }
     }
 
-    /// <summary>Runs <see cref="Validate{TId}"/> for a type only known at runtime.</summary>
     private static string ValidateOf(Type idType)
     {
         try
@@ -161,7 +117,7 @@ public static class TypedIdPrefix
     private static readonly MethodInfo ValidateDefinition =
         typeof(TypedIdPrefix).GetMethod(nameof(Validate), genericParameterCount: 1, Type.EmptyTypes)!;
 
-    /// <summary>Builds the message explaining what is wrong with a prefix.</summary>
+    /// <summary>Checks a prefix, and says what is wrong with it when it breaks a rule.</summary>
     internal static string Validate(string? prefix, bool extended, Type idType)
     {
         if (prefix is null || prefix.Length == 0)
@@ -200,23 +156,16 @@ public static class TypedIdPrefix
     }
 }
 
-/// <summary>
-/// Holds the validated prefix of one id type. Generic statics give one slot per closed type, which
-/// is what makes the check run once and stay out of the way afterwards.
-/// </summary>
+/// <summary>Holds the validated prefix of one id type, checked on first read.</summary>
 /// <typeparam name="TId">The id type.</typeparam>
 internal static class TypedIdPrefixCache<TId>
     where TId : struct, ITypedId<TId>
 {
     private static string? _prefix;
 
-    /// <summary>The prefix of <typeparamref name="TId"/>, checked on first read.</summary>
-    /// <remarks>
-    /// Validated lazily rather than in a static initializer on purpose: a broken prefix surfaces as
-    /// the <see cref="InvalidOperationException"/> that says what is wrong, not wrapped in a
-    /// <see cref="TypeInitializationException"/>. Two threads racing here both reach the same
-    /// answer, so there is nothing to lock.
-    /// </remarks>
+    // Lazily rather than in a static initializer, so a broken prefix surfaces as the exception that
+    // says what is wrong instead of a TypeInitializationException wrapping it. Two threads racing
+    // here reach the same answer, so there is nothing to lock.
     internal static string Value =>
         _prefix ??= TypedIdPrefix.Validate(TId.Prefix, TId.UsesExtendedPrefix, typeof(TId));
 }

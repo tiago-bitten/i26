@@ -9,34 +9,14 @@ using Microsoft.Extensions.Logging;
 namespace i26.AspNetCore.Diagnostics;
 
 /// <summary>
-/// Last line of defence: turns anything that escaped a handler into the same problem response a
-/// failed <see cref="Result"/> would have produced.
+/// Turns anything that escaped a handler into the same problem response a failed
+/// <see cref="Result"/> would have produced, so a client parses a crash like a business failure.
 /// </summary>
 /// <remarks>
-/// <para>Registration:</para>
-/// <code>
-/// builder.Services.AddProblemDetails();
-/// builder.Services.AddExceptionHandler&lt;GlobalExceptionHandler&gt;();
-/// ...
-/// app.UseExceptionHandler();
-/// </code>
-/// <para>
-/// It handles two things. A <see cref="BadHttpRequestException"/> — malformed JSON, a route value
-/// that would not bind — is the caller's fault and comes back as 400 naming the offending field,
-/// so endpoints never have to check for it. Anything else is a bug and comes back as 500.
-/// </para>
-/// <para>
-/// The response goes through the same renderer as <see cref="ProblemResults"/>: same
-/// <c>application/problem+json</c> media type, same <c>code</c> extension, same
-/// <see cref="IErrorTranslator"/>. A client parses a crash exactly like it parses a business
-/// failure.
-/// </para>
+/// Register with <c>AddProblemDetails</c>, <c>AddExceptionHandler&lt;GlobalExceptionHandler&gt;</c>
+/// and <c>UseExceptionHandler</c>. A <see cref="BadHttpRequestException"/> comes back as 400 naming
+/// the field, so endpoints never check for it; anything else is a bug and comes back as 500.
 /// </remarks>
-/// <param name="logger">Where the exception is recorded.</param>
-/// <param name="environment">
-/// Decides whether the exception message may reach the client — see
-/// <see cref="TryHandleAsync"/>.
-/// </param>
 public sealed class GlobalExceptionHandler(
     ILogger<GlobalExceptionHandler> logger,
     IHostEnvironment environment) : IExceptionHandler
@@ -52,18 +32,10 @@ public sealed class GlobalExceptionHandler(
     public const string InvalidFieldCodePrefix = "request.";
 
     /// <summary>Writes the problem response for an unhandled exception.</summary>
-    /// <param name="httpContext">The request being answered.</param>
-    /// <param name="exception">What escaped.</param>
-    /// <param name="cancellationToken">Unused: the response is written through the result pipeline.</param>
     /// <returns><see langword="true"/> when the response was written.</returns>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="httpContext"/> or <paramref name="exception"/> is <see langword="null"/>.
-    /// </exception>
     /// <remarks>
-    /// The exception message reaches the client only in the Development environment. Anywhere else
-    /// a 500 carries nothing but its code: messages routinely spell out connection strings, file
-    /// paths and SQL, and none of that is the caller's business. The full exception is always in the
-    /// log either way.
+    /// The exception message reaches the client only in Development: messages routinely spell out
+    /// connection strings, file paths and SQL. The full exception is always in the log.
     /// </remarks>
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,

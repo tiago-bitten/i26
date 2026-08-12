@@ -5,13 +5,10 @@ using i26.Core.Results;
 
 namespace i26.Dapper.Pagination;
 
-/// <summary>
-/// Cursor paging over a Dapper query.
-/// </summary>
+/// <summary>Cursor paging over a Dapper query.</summary>
 /// <remarks>
-/// The same cursor and the same <see cref="PagedResponse{T}"/> as the Entity Framework Core side,
-/// so a screen can move from one to the other — a query hand-written for a join the ORM makes a
-/// mess of — without the client noticing.
+/// The same cursor and the same <see cref="PagedResponse{T}"/> as the Entity Framework side, so a
+/// screen can move from one to the other without the client noticing.
 /// </remarks>
 public static class DapperPagingExtensions
 {
@@ -26,49 +23,17 @@ public static class DapperPagingExtensions
     private const string CursorIdParameter = "__cursorId";
 
     /// <summary>Reads one page of a query, newest first.</summary>
-    /// <typeparam name="T">The row type.</typeparam>
-    /// <param name="connection">The open connection.</param>
-    /// <param name="sql">
-    /// The query to page over, filtered but not ordered and without a limit. It is wrapped as a
-    /// derived table, so it has to name the two ordering columns among the ones it selects.
-    /// </param>
-    /// <param name="request">How many rows, and where the last page stopped.</param>
-    /// <param name="parameters">Parameters of <paramref name="sql"/>.</param>
-    /// <param name="createdAtColumn">Column the page is ordered by, as it is named in the query.</param>
-    /// <param name="idColumn">Tie-breaking column, as it is named in the query.</param>
-    /// <param name="maxLimit">Ceiling applied to the requested limit.</param>
-    /// <param name="transaction">Transaction to run in, if any.</param>
-    /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>
     /// The page, or <see cref="PaginationErrors.InvalidCursor"/> when the cursor cannot be read.
     /// </returns>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="connection"/> or <paramref name="request"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="sql"/> is empty, or a column name holds something other than an identifier.
-    /// </exception>
+    /// <exception cref="ArgumentException">A column name holds something other than an identifier.</exception>
     /// <remarks>
-    /// <para>
-    /// The two column arguments are written into the statement as identifiers — they come from your
-    /// code, never from a request. Everything else travels as a parameter.
-    /// </para>
-    /// <code>
-    /// var page = await connection.ToPagedResponseAsync&lt;CourseRow&gt;(
-    ///     """
-    ///     SELECT c."Id", c."Title", c."CreatedAt"
-    ///     FROM courses c
-    ///     WHERE c."TenantId" = @TenantId
-    ///     """,
-    ///     request,
-    ///     new { TenantId = tenantId },
-    ///     cancellationToken: ct);
-    /// </code>
-    /// <para>
-    /// The paging clause is <c>LIMIT</c>, which Postgres, SQLite and MySQL take. On SQL Server,
-    /// write the outer query yourself with <c>OFFSET 0 ROWS FETCH NEXT</c> and build the page with
-    /// <see cref="CursorPage.From{T}"/> — the cursor and the response are the same either way.
-    /// </para>
+    /// The query arrives filtered, not ordered and without a limit; it is wrapped as a derived
+    /// table, so it has to select the two ordering columns. Those column arguments are written into
+    /// the statement as identifiers, since no parameter can stand in for one — they come from your
+    /// code, never from a request. The paging clause is <c>LIMIT</c>, which Postgres, SQLite and
+    /// MySQL take; on SQL Server, write the outer query yourself and build the page with
+    /// <see cref="CursorPage.From{T}"/>.
     /// </remarks>
     public static async Task<Result<PagedResponse<T>>> ToPagedResponseAsync<T>(
         this IDbConnection connection,
