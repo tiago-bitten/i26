@@ -111,7 +111,9 @@ which rule it broke.
 There is one mistake no per-type check can catch: **two entities picking the same prefix.** Nothing
 stops `CourseId` and `ClassroomId` from both declaring `crs`, the code goes on compiling, and
 `crs_01h455…` quietly stops saying which entity it belongs to. Ids declared with `[TypedId]` are
-checked against each other while the project compiles; for ids written by hand, one test in the
+checked against each other while the project compiles, and **every declaration sharing the prefix is
+told**, on the string it wrote — so the error is in whichever of the files you have open, and not
+only in the one the compiler happened to reach second. For ids written by hand, one test in the
 project that declares them settles it:
 
 ```csharp

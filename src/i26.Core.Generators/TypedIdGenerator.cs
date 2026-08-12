@@ -317,31 +317,41 @@ public sealed class TypedIdGenerator : IIncrementalGenerator
     /// <summary>Settles the one rule no single declaration can answer: who owns a prefix.</summary>
     private static void ReportDuplicates(SourceProductionContext production, ImmutableArray<Claim> claims)
     {
-        var owners = new Dictionary<string, Claim>(StringComparer.Ordinal);
+        // Source order, so the first declaration is the one every message names first, the way
+        // CS0101 does. Path and span are not a total order on their own, so namespace and name
+        // settle the rest and keep the choice the same between builds.
+        var sharing = claims
+            .Where(claim => claim.IsValid)
+            .OrderBy(claim => claim.Location.FilePath, StringComparer.Ordinal)
+            .ThenBy(claim => claim.Location.Span.Start)
+            .ThenBy(claim => claim.Namespace ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(claim => claim.Name, StringComparer.Ordinal)
+            .GroupBy(claim => claim.Prefix, StringComparer.Ordinal);
 
-        // Source order, so the error lands on the later declaration and points back at the first,
-        // the way CS0101 does. Path and span are not a total order on their own, so namespace and
-        // name settle the rest and keep the choice the same between builds.
-        foreach (var claim in claims
-                     .Where(claim => claim.IsValid)
-                     .OrderBy(claim => claim.Location.FilePath, StringComparer.Ordinal)
-                     .ThenBy(claim => claim.Location.Span.Start)
-                     .ThenBy(claim => claim.Namespace ?? string.Empty, StringComparer.Ordinal)
-                     .ThenBy(claim => claim.Name, StringComparer.Ordinal))
+        foreach (var prefix in sharing)
         {
             production.CancellationToken.ThrowIfCancellationRequested();
 
-            if (owners.TryGetValue(claim.Prefix, out var owner))
+            var claimants = prefix.ToArray();
+
+            if (claimants.Length is 1)
             {
-                production.ReportDiagnostic(Diagnostic.Create(
-                    TypedIdDiagnostics.DuplicatePrefix,
-                    claim.PrefixLocation.ToLocation(),
-                    additionalLocations: [owner.PrefixLocation.ToLocation()],
-                    messageArgs: [owner.Name, claim.Name, claim.Prefix]));
                 continue;
             }
 
-            owners.Add(claim.Prefix, claim);
+            // Every declaration is told, rather than only the later one: an IDE that shows this
+            // after a build shows it in the file that is open, and only one of the two would be.
+            for (var index = 0; index < claimants.Length; index++)
+            {
+                var claim = claimants[index];
+                var other = claimants[index is 0 ? 1 : 0];
+
+                production.ReportDiagnostic(Diagnostic.Create(
+                    TypedIdDiagnostics.DuplicatePrefix,
+                    claim.PrefixLocation.ToLocation(),
+                    additionalLocations: [other.PrefixLocation.ToLocation()],
+                    messageArgs: [claimants[0].Name, index is 0 ? claimants[1].Name : claim.Name, claim.Prefix]));
+            }
         }
     }
 

@@ -207,25 +207,44 @@ public class TypedIdGeneratorTests
     {
         var run = Once(Id("CourseId", "crs"), Id("ClassroomId", "crs"));
 
-        var diagnostic = run.Single();
-
-        Assert.Equal("I26ID003", diagnostic.Id);
-        Assert.Contains("CourseId", diagnostic.GetMessage(), StringComparison.Ordinal);
-        Assert.Contains("ClassroomId", diagnostic.GetMessage(), StringComparison.Ordinal);
+        Assert.All(run.Diagnostics, diagnostic =>
+        {
+            Assert.Equal("I26ID003", diagnostic.Id);
+            Assert.Contains("CourseId", diagnostic.GetMessage(), StringComparison.Ordinal);
+            Assert.Contains("ClassroomId", diagnostic.GetMessage(), StringComparison.Ordinal);
+        });
     }
 
     [Fact]
-    public void A_collision_points_back_at_the_declaration_that_claimed_the_prefix_first()
+    public void Both_declarations_are_told_and_each_points_at_the_other()
     {
         var run = Once(Id("CourseId", "crs", fileName: "A.cs"), Id("ClassroomId", "crs", fileName: "B.cs"));
 
-        var diagnostic = run.Single();
+        // One in each file, so an editor showing the error shows it wherever the reader is. The
+        // path, not SourceTree: a location rebuilt from a file path and a span is an external one,
+        // which is how the generator keeps the syntax tree out of the pipeline.
+        Assert.Equal(
+            ["A.cs", "B.cs"],
+            run.Diagnostics.Select(diagnostic => diagnostic.Location.GetLineSpan().Path).Order(StringComparer.Ordinal));
 
-        // The path, not SourceTree: a location rebuilt from a file path and a span is an external
-        // one, which is how the generator keeps the syntax tree out of the pipeline. The compiler
-        // and the IDE navigate it the same way.
-        Assert.Equal("B.cs", diagnostic.Location.GetLineSpan().Path);
-        Assert.Equal("A.cs", Assert.Single(diagnostic.AdditionalLocations).GetLineSpan().Path);
+        Assert.Equal(
+            ["A.cs", "B.cs"],
+            run.Diagnostics
+                .Select(diagnostic => Assert.Single(diagnostic.AdditionalLocations).GetLineSpan().Path)
+                .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void A_third_declaration_of_the_same_prefix_is_told_too()
+    {
+        var run = Once(
+            Id("CourseId", "crs", fileName: "A.cs"),
+            Id("ClassroomId", "crs", fileName: "B.cs"),
+            Id("CohortId", "crs", fileName: "C.cs"));
+
+        Assert.Equal(3, run.Diagnostics.Length);
+        Assert.All(run.Diagnostics, diagnostic =>
+            Assert.Contains("CourseId", diagnostic.GetMessage(), StringComparison.Ordinal));
     }
 
     [Fact]
