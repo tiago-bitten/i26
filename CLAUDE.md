@@ -87,6 +87,10 @@ The pass that established this took the source from 41% documentation to 25%.
 
 ## Conventions
 
+- **A package README frames, the repository README explains.** No paragraph belongs in both — the
+  one in `src/*` says what that package solves and what it drags in, and links to the section here
+  that documents it. Those links are **absolute**: nuget.org renders the file outside the
+  repository, where a relative link is a 404 nobody can fix after publishing.
 - **Error codes** are `dot.camelCase` (`course.notFound`, `classroom.teachingLevel.required`), declared
   as fields on a static `{Entity}Errors` class, never inline at the call site. An error whose message
   needs a value is a method: `TitleTooLong(int max) => Error.Validation("course.title.tooLong", max)`.
@@ -228,7 +232,7 @@ parameter avoids the noise.
 ## Layout
 
 ```
-src/                    the six packages
+src/                    the six packages, each with the README that becomes its page on nuget.org
 tests/                  one test project per package
 Directory.Build.props   shared build and package metadata
 nuget.config            <clear /> — the corporate feed is not needed and 401s

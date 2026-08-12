@@ -21,6 +21,10 @@
         i26.Core is referenced, with nothing else to install.
     -->
     <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\i26.Core.Generators\i26.Core.Generators.csproj"
                           OutputItemType="Analyzer"
                           ReferenceOutputAssembly="false" />

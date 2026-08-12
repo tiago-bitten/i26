@@ -53,14 +53,17 @@ app.MapPost("courses/{id}/publish", Handle)
 
 ## Packages
 
+This page is the manual. Each package also has a README of its own, which is the page you see on
+nuget.org and the shorter answer to "what is this one for".
+
 | Package | What it holds | Depends on |
 | --- | --- | --- |
-| `i26.Core` | Typed ids and their generator, `Result`/`Error`, cursor paging, domain events, specifications, the query seam | nothing outside the BCL |
-| `i26.Cqrs` | Command, query and domain event contracts, the handler registration, an in-process dispatcher | `Microsoft.Extensions.DependencyInjection.Abstractions` |
-| `i26.EntityFrameworkCore` | Typed id conventions, cursor paging over `IQueryable`, domain event collection on save | `Microsoft.EntityFrameworkCore.Relational` |
-| `i26.Dapper` | Typed id handlers, cursor paging over a hand-written query | `Dapper` |
-| `i26.Hosting` | Background handling of domain events, as a hosted service | `Microsoft.Extensions.Hosting.Abstractions` |
-| `i26.AspNetCore` | Problem responses, endpoint discovery, global exception handler | ASP.NET Core shared framework |
+| [`i26.Core`](src/i26.Core/README.md) | Typed ids and their generator, `Result`/`Error`, cursor paging, domain events, specifications, the query seam | nothing outside the BCL |
+| [`i26.Cqrs`](src/i26.Cqrs/README.md) | Command, query and domain event contracts, the handler registration, an in-process dispatcher | `Microsoft.Extensions.DependencyInjection.Abstractions` |
+| [`i26.EntityFrameworkCore`](src/i26.EntityFrameworkCore/README.md) | Typed id conventions, cursor paging over `IQueryable`, domain event collection on save | `Microsoft.EntityFrameworkCore.Relational` |
+| [`i26.Dapper`](src/i26.Dapper/README.md) | Typed id handlers, cursor paging over a hand-written query | `Dapper` |
+| [`i26.Hosting`](src/i26.Hosting/README.md) | Background handling of domain events, as a hosted service | `Microsoft.Extensions.Hosting.Abstractions` |
+| [`i26.AspNetCore`](src/i26.AspNetCore/README.md) | Problem responses, endpoint discovery, global exception handler | ASP.NET Core shared framework |
 
 `i26.Core` has **no external dependencies** by design — it is meant to sit in a domain project
 without dragging a web stack or an ORM behind it.

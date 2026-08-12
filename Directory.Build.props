@@ -28,9 +28,10 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
-    <ItemGroup Label="Package">
-        <!-- Shipped inside every package, so nuget.org shows the same page as the repository. -->
-        <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
-    </ItemGroup>
+    <!--
+        Each package ships the README next to its own csproj: the repository one is the manual, and
+        a page on nuget.org should be about the package being looked at. PackageReadmeFile stays
+        here so a new package without a README fails the pack rather than shipping mute.
+    -->
 
 </Project>

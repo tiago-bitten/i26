@@ -13,6 +13,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\i26.Core\i26.Core.csproj" />
     </ItemGroup>
 
