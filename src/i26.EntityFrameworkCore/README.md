@@ -136,6 +136,26 @@ protected override bool IsPaged => false;
 A `DeletableEntity<TId>` uses the same base: hiding the deleted rows is a filter over the whole
 model, not something a single configuration does.
 
+### Names in the database
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    // whatever else this configures…
+    modelBuilder.ApplyLowercaseNames();
+}
+```
+
+`UserAuth` becomes `userauth`, `CreatedAt` becomes `createdat`, and so do the keys, the indexes and
+the foreign key constraints. On Postgres an identifier that is not lowercase has to be **quoted
+everywhere, forever** — in every migration, every hand-written query and every psql session —
+because an unquoted one is folded to lowercase and stops matching. Lowercasing once removes the
+quotes from everything downstream.
+
+Call it **last**: it rewrites the names decided before it, including the ones a configuration chose
+by hand, which is what keeps a `ToTable("AuthProviders")` from being the one exception nobody
+remembers.
+
 ### Hiding what was deleted
 
 ```csharp

@@ -26,7 +26,7 @@ library — not because it is a separate thing.
 
 ```bash
 dotnet build i26.sln            # all 6 packages x 3 target frameworks
-dotnet test i26.sln             # 605 tests
+dotnet test i26.sln             # 610 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
