@@ -69,7 +69,31 @@ It comes with a comparer, and that part is not decoration: change tracking falls
 equality for a class, so without one, assigning an address equal to the one already there would be
 saved as an update saying nothing.
 
-`EmailConverter` and `EmailComparer` are public for a property that wants them named directly:
+### From the configuration of the entity holding it
+
+The convention maps the type; an index over one address is a decision about **that entity**, and
+belongs where the entity is configured:
+
+```csharp
+internal sealed class UserConfiguration : EntityConfiguration<User, UserId>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<User> builder)
+    {
+        builder.HasEmail(user => user.Email, unique: true).IsRequired();
+        builder.HasEmail(user => user.Recovery);          // optional, no index
+    }
+}
+```
+
+`HasEmail` applies the converter, the comparer and the width, so it stands on its own in a model
+that never called `ApplyValueObjectConventions`. It answers with the property, so the configuration
+goes on saying whatever else it has to say about it.
+
+The unique index is worth a second's thought about what it means here: the address was lowercased
+when it was created, so `TIAGO@example.com` and `tiago@example.com` collide on it — which is the
+behaviour you want, and only true because the normalisation happened before the database saw it.
+
+`EmailConverter` and `EmailComparer` are public too, for a property that would rather name them:
 
 ```csharp
 builder.Property(contact => contact.Email)
