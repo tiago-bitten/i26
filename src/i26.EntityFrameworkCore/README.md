@@ -48,30 +48,34 @@ page stops.
 
 ## Value objects
 
-One call maps every i26 value object wherever it appears, so a property never says how to store
+One call maps every value object in the assemblies you name, so a property never says how to store
 itself:
 
 ```csharp
 protected override void ConfigureConventions(ModelConfigurationBuilder builder)
 {
     builder.ApplyTypedIdConventions(typeof(Course).Assembly);
-    builder.ApplyValueObjectConventions();
+    builder.ApplyValueObjectConventions(typeof(Course).Assembly);
 }
 ```
 
-An [`Email`](https://github.com/tiago-bitten/i26/blob/main/src/i26.Core/README.md#value-objects)
-becomes a `varchar(254)` holding the address as text — lowercased, since that is how it was created,
-which is what lets a unique index on the column mean what it looks like. Reading goes through
-`Email.Parse`, so a row holding something else fails immediately rather than becoming an address
+Name **your** domain. The value objects of i26 are always included, so an
+[`Email`](https://github.com/tiago-bitten/i26/blob/main/src/i26.Core/README.md#value-objects)
+is mapped whether or not you knew which assembly it lives in — and so is a `Slug` you wrote
+yourself, by the same call, with the same converter and comparer, without a line about it in this
+library.
+
+Each becomes a `varchar(MaxLength)` holding its value as text. Reading goes through `Parse`, so a
+row holding something the type would have refused fails immediately rather than becoming a value
 that never passed a check.
 
-It comes with a comparer, and that part is not decoration: change tracking falls back to reference
-equality for a class, so without one, assigning an address equal to the one already there would be
-saved as an update saying nothing.
+The comparer is not decoration: change tracking falls back to reference equality for a class, so
+without one, assigning a value equal to the one already there would be saved as an update saying
+nothing.
 
 ### From the configuration of the entity holding it
 
-The convention maps the type; an index over one address is a decision about **that entity**, and
+The convention maps the type; an index over one property is a decision about **that entity**, and
 belongs where the entity is configured:
 
 ```csharp
@@ -79,21 +83,22 @@ internal sealed class UserConfiguration : EntityConfiguration<User, UserId>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<User> builder)
     {
-        builder.HasEmail(user => user.Email, unique: true).IsRequired();
-        builder.HasEmail(user => user.Recovery);          // optional, no index
+        builder.HasValueObject(user => user.Email, unique: true).IsRequired();
+        builder.HasValueObject(user => user.Recovery);          // optional, no index
     }
 }
 ```
 
-`HasEmail` applies the converter, the comparer and the width, so it stands on its own in a model
-that never called `ApplyValueObjectConventions`. It answers with the property, so the configuration
-goes on saying whatever else it has to say about it.
+`HasValueObject` applies the converter, the comparer and the width, so it stands on its own in a
+model that never called `ApplyValueObjectConventions`. It answers with the property, so the
+configuration goes on saying whatever else it has to say about it.
 
-The unique index is worth a second's thought about what it means here: the address was lowercased
-when it was created, so `TIAGO@example.com` and `tiago@example.com` collide on it — which is the
-behaviour you want, and only true because the normalisation happened before the database saw it.
+The unique index is worth a second's thought about what it means: an `Email` is lowercased when it
+is created, so `TIAGO@example.com` and `tiago@example.com` collide on it — which is the behaviour
+you want, and only true because the normalisation happened before the database saw either.
 
-`EmailConverter` and `EmailComparer` are public too, for a property that would rather name them:
+`ValueObjectConverter<T>` and `ValueObjectComparer<T>` are public for a property that would rather
+name them, and `EmailConverter` and `EmailComparer` are the named forms of the two for `Email`:
 
 ```csharp
 builder.Property(contact => contact.Email)

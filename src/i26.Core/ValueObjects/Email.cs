@@ -8,11 +8,11 @@ namespace i26.Core.ValueObjects;
 /// throwing, so a bad address travels the same way every other refusal does. There is no public
 /// constructor: an <c>Email</c> in a signature is an address that already passed.
 /// </remarks>
-public sealed record Email
+public sealed record Email : IStringValueObject<Email>
 {
     /// <summary>The longest an address may be, in characters.</summary>
     /// <remarks>RFC 5321: 254 is the ceiling a path can carry, and it is also a sane column width.</remarks>
-    public const int MaxLength = 254;
+    public static int MaxLength => 254;
 
     /// <summary>The longest the part before the <c>@</c> may be.</summary>
     public const int MaxLocalPartLength = 64;
@@ -89,6 +89,24 @@ public sealed record Email
         return result.IsSuccess
             ? result.Value
             : throw new FormatException($"'{value}' is not an email address ({result.Error.Code}).");
+    }
+
+    /// <inheritdoc cref="Parse(string?)" />
+    /// <param name="s">The stored address.</param>
+    /// <param name="provider">Ignored: an address does not read differently in another culture.</param>
+    public static Email Parse(string s, IFormatProvider? provider) => Parse(s);
+
+    /// <summary>Reads an address, answering whether it was one.</summary>
+    /// <remarks>
+    /// From <see cref="IParsable{TSelf}"/>, which is what binds an address out of a route or a
+    /// query string. <see cref="Create"/> is the one to reach for otherwise: it says why not.
+    /// </remarks>
+    public static bool TryParse(string? s, IFormatProvider? provider, out Email result)
+    {
+        var created = Create(s);
+        result = created.IsSuccess ? created.Value : null!;
+
+        return created.IsSuccess;
     }
 
     /// <inheritdoc />

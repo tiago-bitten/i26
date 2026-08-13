@@ -26,8 +26,8 @@ public sealed class AccountConfiguration : EntityConfiguration<Account, AccountI
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Account> builder)
     {
-        builder.HasEmail(account => account.Email, unique: true).IsRequired();
-        builder.HasEmail(account => account.Recovery);
+        builder.HasValueObject(account => account.Email, unique: true).IsRequired();
+        builder.HasValueObject(account => account.Recovery);
     }
 }
 

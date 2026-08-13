@@ -352,6 +352,34 @@ dot. It refuses them on purpose: no provider accepts them, and an address is bei
 send mail to. **Passing this is not a promise the address exists** — the only check for that is
 sending something to it.
 
+### Writing your own
+
+`Email` is not a special case, it is the first one. A value object that is one string implements
+`IStringValueObject<TSelf>` — four members, and everything downstream already knows what to do with
+it:
+
+```csharp
+public sealed record Slug : IStringValueObject<Slug>
+{
+    private Slug(string value) => Value = value;
+
+    public static int MaxLength => 80;
+    public string Value { get; }
+
+    public static Result<Slug> Create(string? value) { /* your rules */ }
+
+    public static Slug Parse(string s, IFormatProvider? provider) { /* Create, or throw */ }
+    public static bool TryParse(string? s, IFormatProvider? provider, out Slug result) { /* Create */ }
+}
+```
+
+The last two come from `IParsable<TSelf>`, which the interface derives from — the same reason a
+typed id binds out of a route with no registration.
+
+That is the whole contract. i26.EntityFrameworkCore maps it with the converter and comparer it
+already has, from a call that names **your** assembly, and there is no line about it anywhere in
+this library — which is what a test for a value object declared outside it asserts.
+
 ---
 
 ## Result pattern
