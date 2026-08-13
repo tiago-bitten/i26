@@ -8,6 +8,7 @@ dotnet add package i26.EntityFrameworkCore
 ```
 
 - [Typed identifiers](#typed-identifiers)
+- [Value objects](#value-objects)
 - [Base entities](#base-entities)
 - [Cursor pagination](#cursor-pagination)
 - [Domain events](#domain-events)
@@ -42,6 +43,39 @@ builder.ApplyTypedIdConventions(TypedIdStorage.ProviderDefault, typeof(Course).A
 That leaves the column type and the collation to the provider. Ordering then depends on that
 collation being binary — without one, the database and `TypedId.Compare` can disagree about where a
 page stops.
+
+---
+
+## Value objects
+
+One call maps every i26 value object wherever it appears, so a property never says how to store
+itself:
+
+```csharp
+protected override void ConfigureConventions(ModelConfigurationBuilder builder)
+{
+    builder.ApplyTypedIdConventions(typeof(Course).Assembly);
+    builder.ApplyValueObjectConventions();
+}
+```
+
+An [`Email`](https://github.com/tiago-bitten/i26/blob/main/src/i26.Core/README.md#value-objects)
+becomes a `varchar(254)` holding the address as text — lowercased, since that is how it was created,
+which is what lets a unique index on the column mean what it looks like. Reading goes through
+`Email.Parse`, so a row holding something else fails immediately rather than becoming an address
+that never passed a check.
+
+It comes with a comparer, and that part is not decoration: change tracking falls back to reference
+equality for a class, so without one, assigning an address equal to the one already there would be
+saved as an update saying nothing.
+
+`EmailConverter` and `EmailComparer` are public for a property that wants them named directly:
+
+```csharp
+builder.Property(contact => contact.Email)
+    .HasConversion<EmailConverter, EmailComparer>()
+    .HasMaxLength(Email.MaxLength);
+```
 
 ---
 

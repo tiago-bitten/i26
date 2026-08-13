@@ -10,6 +10,7 @@ dotnet add package i26.Core
 
 - [Typed identifiers](#typed-identifiers)
 - [Base entities](#base-entities)
+- [Value objects](#value-objects)
 - [Result pattern](#result-pattern)
 - [Error types](#error-types)
 - [Domain events](#domain-events)
@@ -300,6 +301,56 @@ public override Result Delete() => HasShipped ? OrderErrors.Shipped : base.Delet
 
 None of this is required. An entity that would rather not inherit implements
 [`IHasDomainEvents`](#domain-events) — a list and two members — and keeps its own shape.
+
+---
+
+## Value objects
+
+An `Email` in a signature is an address that already passed. There is no public constructor, so the
+only way to hold one is to have been given one that was checked:
+
+```csharp
+using i26.Core.ValueObjects;
+
+var email = Email.Create(request.Email);      // Result<Email>
+
+if (email.IsFailure)
+{
+    return email.Error;                       // email.malformed, email.tooLong, …
+}
+
+await handler.HandleAsync(new RegisterCommand(email.Value), ct);
+```
+
+It answers with a `Result` rather than throwing, so a bad address travels the way every other
+refusal does — through the [result pattern](#result-pattern), out to a problem response, with a code
+a translator can turn into a sentence. And the code says **which rule**, because a form telling
+someone their address is too long is worth more than one telling them it is wrong:
+
+| | |
+| --- | --- |
+| `email.required` | nothing was given |
+| `email.tooLong` | longer than 254 characters, carrying the limit as an argument |
+| `email.malformed` | no `@`, more than one, or nothing on one side |
+| `email.localPart.invalid` | the part before the `@` |
+| `email.domain.invalid` | the part after it |
+
+`Email.Parse` is the same rules, throwing — for a row this application wrote itself, or a fixture.
+
+### What it normalises, and what it refuses
+
+**Trimmed and lowercased.** Two people typing the same address differently wrote the same address,
+which is what makes equality and a unique index agree with each other. `LocalPart` and `Domain` are
+there without splitting it again.
+
+The rules are written as loops rather than as a pattern: the local part is letters, digits and
+`. _ - +`, not starting, ending or doubling on a dot, up to 64 characters; the domain is letters,
+digits and hyphens in labels of up to 63, with at least one dot.
+
+That refuses things RFC 5322 allows — a quoted local part, an IP-literal domain, a host name with no
+dot. It refuses them on purpose: no provider accepts them, and an address is being taken here to
+send mail to. **Passing this is not a promise the address exists** — the only check for that is
+sending something to it.
 
 ---
 

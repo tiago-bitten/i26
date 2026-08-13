@@ -50,7 +50,7 @@ package** — this page is the map.
 
 | Package | What it solves | Depends on |
 | --- | --- | --- |
-| [`i26.Core`](src/i26.Core/README.md) | Typed ids and their generator, base entities, `Result`/`Error`, cursor paging, domain events, specifications, the query seam | nothing outside the BCL |
+| [`i26.Core`](src/i26.Core/README.md) | Typed ids and their generator, base entities, value objects, `Result`/`Error`, cursor paging, domain events, specifications, the query seam | nothing outside the BCL |
 | [`i26.Cqrs`](src/i26.Cqrs/README.md) | Commands, queries, their handlers and the registration that finds them | `Microsoft.Extensions.DependencyInjection.Abstractions` |
 | [`i26.EntityFrameworkCore`](src/i26.EntityFrameworkCore/README.md) | Typed id conventions, cursor paging over `IQueryable`, domain event collection on save | `Microsoft.EntityFrameworkCore.Relational` |
 | [`i26.Dapper`](src/i26.Dapper/README.md) | Typed id handlers, cursor paging over a hand-written query | `Dapper` |

@@ -6,10 +6,10 @@ packages, multi-targeting net8.0, net9.0 and net10.0.
 
 | Project | Holds | External dependency |
 | --- | --- | --- |
-| `src/i26.Core` | Typed ids, base entities, `Result`/`Error`, cursor paging, domain events, specifications, queries | **none** |
+| `src/i26.Core` | Typed ids, base entities, value objects, `Result`/`Error`, paging, domain events, specifications, queries | **none** |
 | `src/i26.Core.Generators` | The `[TypedId]` source generator, shipped inside i26.Core | Roslyn (compile only) |
 | `src/i26.Cqrs` | `ICommand`/`IQuery`, handler registration, the in-process domain event dispatcher | DI abstractions |
-| `src/i26.EntityFrameworkCore` | Typed id conventions, the query backend, the domain event and timestamp interceptors | EF Core Relational |
+| `src/i26.EntityFrameworkCore` | Conventions for ids and value objects, the query backend, the interceptors | EF Core Relational |
 | `src/i26.Dapper` | Paging over a hand-written query | Dapper |
 | `src/i26.Hosting` | Background domain event dispatch, as a hosted service | Hosting abstractions |
 | `src/i26.AspNetCore` | ProblemDetails, `IEndpoint`, exception handler | ASP.NET shared framework |
@@ -26,7 +26,7 @@ library — not because it is a separate thing.
 
 ```bash
 dotnet build i26.sln            # all 6 packages x 3 target frameworks
-dotnet test i26.sln             # 560 tests
+dotnet test i26.sln             # 605 tests
 dotnet build i26.sln -c Release # must end with 0 warnings
 dotnet format                   # fixes what the CI formatting gate checks
 ```
